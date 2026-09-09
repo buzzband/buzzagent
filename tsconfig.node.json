@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": ["vitest/globals"],
+    "composite": true
+  },
+  "include": ["./vite.config.ts", "./vitest.config.ts"]
+}

@@ -1,0 +1,26 @@
+[package]
+name = "buzzagent"
+version = "0.1.0"
+description = "Open-source visual control center for AI coding agents — zero telemetry"
+license = "MIT"
+edition = "2021"
+repository = "https://github.com/buzzagent/buzzagent"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = ["devtools"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1.0"
+base64 = "0.22"
+headless_chrome = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

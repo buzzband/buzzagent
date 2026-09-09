@@ -1,0 +1,37 @@
+{
+  "productName": "BuzzAgent",
+  "version": "0.1.0",
+  "identifier": "com.buzzagent.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "node_modules/.bin/vite --port 1420",
+    "beforeBuildCommand": "node_modules/.bin/vite build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "BuzzAgent",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "DeveloperTool",
+    "copyright": "Copyright (c) 2026 BuzzAgent Contributors",
+    "licenseFile": "../LICENSE",
+    "shortDescription": "Visual control center for AI coding agents",
+    "longDescription": "Open-source desktop workbench for AI coding agents with an embedded browser, MCP support, visual diffs, model routing, per-role reasoning controls and zero telemetry.",
+    "icon": ["icons/icon.png"],
+    "targets": ["app", "dmg", "deb", "rpm", "msi", "nsis", "appimage"]
+  }
+}

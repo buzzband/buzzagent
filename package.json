@@ -1,0 +1,105 @@
+{
+  "name": "buzzagent",
+  "version": "0.1.0",
+  "description": "Open-source visual control center for AI coding agents — with OMP/OpenCode power and zero telemetry.",
+  "productName": "BuzzAgent",
+  "author": "BuzzAgent <hello@buzzagent.dev>",
+  "homepage": "https://github.com/buzzagent/buzzagent",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "web": "vite --port 1420",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:ui": "vitest --ui",
+    "lint": "eslint src/",
+    "format": "prettier --write src/",
+    "build:web": "vite build",
+    "typecheck": "tsc --noEmit",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"vite --port 1420\" \"wait-on http://localhost:1420 && electron .\"",
+    "electron:build": "vite build && electron-builder",
+    "electron:dist": "electron-builder"
+  },  "build": {
+    "appId": "com.buzzagent.desktop",
+    "productName": "BuzzAgent",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "favicon.png",
+      "favicon.ico"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "favicon.png"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "favicon.png"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "favicon.png",
+      "category": "Development",
+      "maintainer": "BuzzAgent <hello@buzzagent.dev>"
+    }
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "@tauri-apps/api": "^2.0.0",
+    "monaco-editor": "^0.52.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.63.0",
+    "@tauri-apps/cli": "^2.0.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "@vitest/ui": "^2.1.9",
+    "concurrently": "^10.0.5",
+    "electron": "^28.3.3",
+    "electron-builder": "^26.15.3",
+    "eslint": "^9.0.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.12.0",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.3.0",
+    "puppeteer": "^25.10.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.3.0",
+    "vitest": "^2.1.9",
+    "wait-on": "^9.1.0"
+  }
+}

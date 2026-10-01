@@ -35,3 +35,6 @@ releases/
 .prettierrc.cjs
 AGENTS.md
 PLAN.md
+
+# Landing page (hosted separately, not part of the repo upload)
+landing/index.html

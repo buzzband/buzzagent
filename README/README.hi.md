@@ -184,7 +184,7 @@ Rust लेयर, `pr://`/`issue://`/`agent://` URI स्कीम, मॉड�
 
 पूरा स्तर, चुना हुआ फ्रंटएंड स्टैक (React 19, Tailwind 4, Radix, Shiki,
 CodeMirror 6, TanStack Virtual, cmdk) और डिपेंडेंसी जोड़ने के नियम
-[PLAN.md](./PLAN.md#ui-quality-bar) में हैं।
+PLAN.md में हैं।
 
 ## एक सेटिंग कोर तक कैसे पहुँचती है
 

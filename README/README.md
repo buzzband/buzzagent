@@ -6,7 +6,6 @@ From the English README you reached this folder through language links. The
 main documentation lives in the repo root and is English-first:
 
 - [README.md](../README.md) — full project overview in English
-- [PLAN.md](../PLAN.md) — architecture decisions, UI quality bar, roadmap
 - [docs/telemetry-audit.md](../docs/telemetry-audit.md) — how the zero-telemetry claim is verified
 - [docs/core-api-notes.md](../docs/core-api-notes.md) — verified HTTP/SSE contracts of the pinned core
 

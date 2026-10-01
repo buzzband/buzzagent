@@ -198,7 +198,7 @@ fluxo de mensagens).
 
 A régua completa, a stack frontend escolhida (React 19, Tailwind 4, Radix,
 Shiki, CodeMirror 6, TanStack Virtual, cmdk) e as regras para adicionar
-dependências estão no [PLAN.md](./PLAN.md#ui-quality-bar).
+dependências estão no PLAN.md.
 
 ## Como um ajuste chega ao núcleo
 

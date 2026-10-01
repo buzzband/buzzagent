@@ -189,7 +189,7 @@ erişilebilirlik (odak, kontrast, mesaj akışı için ekran okuyucu desteği).
 
 Tam çıta, seçilen ön yüz yığını (React 19, Tailwind 4, Radix, Shiki,
 CodeMirror 6, TanStack Virtual, cmdk) ve bağımlılık ekleme kuralları
-[PLAN.md](./PLAN.md#ui-quality-bar) içinde.
+PLAN.md içinde.
 
 ## Bir ayar çekirdeğe nasıl ulaşır
 

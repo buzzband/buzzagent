@@ -196,7 +196,7 @@ URI スキーム、モデルフォールバックチェーン。それでも*こ
 
 完全な基準、採用したフロントエンドスタック（React 19、Tailwind 4、Radix、
 Shiki、CodeMirror 6、TanStack Virtual、cmdk）、依存追加のルールは
-[PLAN.md](./PLAN.md#ui-quality-bar) にあります。
+PLAN.md にあります。
 
 ## 設定がどのようにコアへ届くか
 

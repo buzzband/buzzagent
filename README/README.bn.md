@@ -183,7 +183,7 @@ Tauri, কারণ:
 
 পূর্ণ মানদণ্ড, নির্বাচিত ফ্রন্টএন্ড স্ট্যাক (React 19, Tailwind 4, Radix,
 Shiki, CodeMirror 6, TanStack Virtual, cmdk) আর ডিপেন্ডেন্সি যোগের নিয়ম
-[PLAN.md](./PLAN.md#ui-quality-bar)-এ।
+PLAN.md-এ।
 
 ## একটা সেটিং কীভাবে কোরে পৌঁছায়
 

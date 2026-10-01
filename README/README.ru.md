@@ -186,7 +186,7 @@ HTTP/SSE-клиентом ядра — именно это делает запа
 
 Полная планка, выбранный фронтенд-стек (React 19, Tailwind 4, Radix, Shiki,
 CodeMirror 6, TanStack Virtual, cmdk) и правила добавления зависимостей — в
-[PLAN.md](./PLAN.md#ui-quality-bar).
+PLAN.md.
 
 ## Как настройка доходит до ядра
 

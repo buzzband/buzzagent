@@ -66,9 +66,9 @@ The core runs sandboxed (random port, per-run password, `share: disabled`,
 
 Full details, positioning, architecture and the honest costs (three webviews,
 the Electron fallback): the English
-[README](../README.md) · [PLAN](../PLAN.md) ·
+[README](../README.md) ·
 [core API notes](../docs/core-api-notes.md). Questions about a specific
-feature — check [PLAN.md](../PLAN.md) first; each decision is recorded with
-its rationale.
+feature — PLAN.md (local, not published to GitHub) records each decision
+with its rationale.
 
 License: [MIT](../LICENSE).

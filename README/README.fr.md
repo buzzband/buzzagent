@@ -200,7 +200,7 @@ contraste, support du lecteur d'écran pour le flux de messages).
 
 Le bar complet, la pile frontend retenue (React 19, Tailwind 4, Radix,
 Shiki, CodeMirror 6, TanStack Virtual, cmdk) et les règles d'ajout de
-dépendances sont dans [PLAN.md](./PLAN.md#ui-quality-bar).
+dépendances sont dans PLAN.md.
 
 ## Comment un réglage atteint le cœur
 

@@ -199,7 +199,7 @@ lettore di schermo per il flusso dei messaggi).
 
 L'asticella completa, la pila frontend scelta (React 19, Tailwind 4, Radix,
 Shiki, CodeMirror 6, TanStack Virtual, cmdk) e le regole per aggiungere
-dipendenze sono in [PLAN.md](./PLAN.md#ui-quality-bar).
+dipendenze sono in PLAN.md.
 
 ## Come un'impostazione arriva al nucleo
 

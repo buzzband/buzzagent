@@ -197,7 +197,7 @@ pantalla para el flujo de mensajes).
 
 El listón completo, el stack frontend elegido (React 19, Tailwind 4, Radix,
 Shiki, CodeMirror 6, TanStack Virtual, cmdk) y las reglas para añadir
-dependencias están en [PLAN.md](./PLAN.md#ui-quality-bar).
+dependencias están en PLAN.md.
 
 ## Cómo llega un ajuste al núcleo
 

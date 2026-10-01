@@ -235,7 +235,7 @@ stream).
 
 The full bar, the chosen frontend stack (React 19, Tailwind 4, Radix, Shiki,
 CodeMirror 6, TanStack Virtual, cmdk) and the rules for adding dependencies
-are in [PLAN.md](./PLAN.md#ui-quality-bar).
+are in PLAN.md (kept in the local repo, not published).
 
 ## 🎛️ How a setting reaches the core
 

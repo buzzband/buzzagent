@@ -165,7 +165,7 @@ Rust 层、`pr://`/`issue://`/`agent://` URI 方案、模型回退链。但*对�
 
 完整标准、选定前端技术栈（React 19、Tailwind 4、Radix、Shiki、
 CodeMirror 6、TanStack Virtual、cmdk）以及新增依赖的规则见
-[PLAN.md](./PLAN.md#ui-quality-bar)。
+PLAN.md。
 
 ## 一个设置如何到达核心
 

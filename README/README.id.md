@@ -193,7 +193,7 @@ dukungan pembaca layar untuk aliran pesan).
 
 Standar lengkap, stack frontend yang dipilih (React 19, Tailwind 4, Radix,
 Shiki, CodeMirror 6, TanStack Virtual, cmdk), dan aturan menambah
-dependensi ada di [PLAN.md](./PLAN.md#ui-quality-bar).
+dependensi ada di PLAN.md.
 
 ## Bagaimana sebuah pengaturan sampai ke inti
 

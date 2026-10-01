@@ -198,7 +198,7 @@ Screenreader-Unterstützung für den Nachrichtenstrom).
 
 Die volle Messlatte, der gewählte Frontend-Stack (React 19, Tailwind 4,
 Radix, Shiki, CodeMirror 6, TanStack Virtual, cmdk) und die Regeln für neue
-Abhängigkeiten stehen in [PLAN.md](./PLAN.md#ui-quality-bar).
+Abhängigkeiten stehen in PLAN.md.
 
 ## Wie eine Einstellung zum Kern gelangt
 

@@ -187,7 +187,7 @@ side-by-side дифи з підсвіткою синтаксису, довгі �
 
 Повна планка, обраний фронтенд-стек (React 19, Tailwind 4, Radix, Shiki,
 CodeMirror 6, TanStack Virtual, cmdk) і правила додавання залежностей — у
-[PLAN.md](./PLAN.md#ui-quality-bar).
+PLAN.md.
 
 ## Як налаштування дістається до ядра
 

@@ -180,7 +180,7 @@ Rust أصلية كبيرة، مخططات `pr://`/`issue://`/`agent://`، سلا
 
 المعيار الكامل، ومكدس الواجهة المختار (React 19، Tailwind 4، Radix، Shiki،
 CodeMirror 6، TanStack Virtual، cmdk)، وقواعد إضافة الاعتماديات في
-[PLAN.md](./PLAN.md#ui-quality-bar).
+PLAN.md.
 
 ## كيف يصل إعداد إلى النواة
 

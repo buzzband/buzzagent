@@ -30,3 +30,8 @@ releases/
 
 # Local tool state
 .freebuff/
+
+# Never published to GitHub (local-only docs & tooling config)
+.prettierrc.cjs
+AGENTS.md
+PLAN.md

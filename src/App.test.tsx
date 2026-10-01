@@ -69,4 +69,31 @@ describe("App", () => {
     await act(async () => root.unmount());
     useApp.setState({ phase: "boot", projectDir: null });
   });
+
+  it("shows the About block with the project site in Settings → General", async () => {
+    const { container, root } = render();
+
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    await act(async () => {
+      useApp.setState({
+        phase: "ready",
+        projectDir: "/tmp/demo",
+        messages: [],
+        settingsOpen: true,
+      });
+    });
+
+    // About is the first card in General: name, site URL, source, license.
+    expect(container.textContent).toContain("About");
+    expect(container.textContent).toContain("b4zz.com/agent");
+    expect(container.textContent).toContain("Source code");
+    expect(container.textContent).toContain("MIT licensed");
+    expect(container.textContent).toContain("build");
+
+    await act(async () => root.unmount());
+    useApp.setState({ phase: "boot", projectDir: null, settingsOpen: false });
+  });
 });

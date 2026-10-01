@@ -1,3 +1,6 @@
+/** Official project site, shown in Help → About, README files and the landing page. */
+export const PROJECT_URL = "https://b4zz.com/agent";
+
 /**
  * Minimal built-in i18n.
  *
@@ -187,6 +190,13 @@ const en: Dict = {
   "help.builtins": "Built-in",
   "help.project": "Project commands",
   "help.hints": "Type @ for file references, ! to run a shell command, / for commands.",
+  "about.title": "About",
+  "about.tagline": "Visual workbench for AI coding agents — zero telemetry, MIT licensed.",
+  "about.siteHint": "Click to copy the project site URL",
+  "about.copy": "copy",
+  "about.copied": "Copied!",
+  "about.source": "Source code",
+  "about.licenseLine": "MIT licensed · zero telemetry · agent core: OpenCode.",
   "help.cmd.init": "Write or update the project's AGENTS.md",
   "help.cmd.compact": "Summarize this session to free context",
   "help.cmd.export": "Save the conversation as a Markdown file",

@@ -1,6 +1,8 @@
 # BuzzAgent
 
-**EN** | [Русский](./README/README.ru.md) · [Other languages / другие языки](./README/README.md) · [HTML version](./README.html)
+🌐 Project site: **https://b4zz.com/agent**
+
+**EN** | [Other languages](./README/README.md) · [HTML version](./README.html)
 
 Open-source visual workbench for AI coding agents. The agent core is
 [OpenCode](https://github.com/anomalyco/opencode) (MIT); BuzzAgent is the GUI

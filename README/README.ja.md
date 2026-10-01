@@ -1,54 +1,380 @@
 # BuzzAgent — 日本語 (README.ja.md)
 
-> This file is a summary in a condensed form; the full documentation is in the
-> English [README](../README.md) and [PLAN](../PLAN.md). / Полная версия — в
-> главном README (en/ru). The app interface itself is fully translated into
-> 日本語 — see Settings → General → Language.
+🌐 プロジェクトサイト：**https://b4zz.com/agent**
 
-**BuzzAgent** is an open-source visual workbench for AI coding agents. The
-agent core is [OpenCode](https://github.com/anomalyco/opencode) (MIT);
-BuzzAgent is the GUI client around it — not another agent runtime.
+AI コーディングエージェントのためのオープンソース・ビジュアルワークベンチ。
+エージェントのコアは [OpenCode](https://github.com/anomalyco/opencode)
+（MIT）で、BuzzAgent はその周囲の GUI クライアントです。別のエージェント
+ランタイムではありません。
 
-> **See everything the agent does. Control models, tools, browser, MCP, and
-> reasoning — locally, with zero telemetry.**
+> **エージェントのすべての動作が見える。モデル、ツール、ブラウザ、MCP、
+> 推論をローカルで、テレメトリゼロでコントロール。**
 
-## Why this exists
+## なぜこれが存在するのか
 
-Visual agent tools are locked to an IDE and ship telemetry; terminal agents
-are powerful but blind. BuzzAgent keeps the terminal agent's power (the
-pinned OpenCode core) and adds a visual desktop layer — with zero telemetry
-and no account.
+市場は二つに割れています。
 
-## Quick start
+**ビジュアルだが弱い。** Cline、Kilo Code、Roo Code — UI は使えるものの
+VS Code に閉じ込められ、テレメトリ付き、エージェントループも弱い。
+
+**強力だが盲目。** OpenCode、Claude Code、Codex CLI、Oh My Pi — 強力な
+エージェント、しかしターミナル。視覚的 diff も、アプリ内ブラウザも、
+ワークスペース オーケストレーションもない。
+
+その溝を埋めるのは、ターミナルエージェントの力を保ちながら**視覚的な
+コントロールも与える**製品 — テレメトリなし、ベンダーロックインなしで。
+
+BuzzAgent はその製品です。エージェントを**再実装しません**。OpenCode は
+すでにヘッドレス HTTP サーバー（`opencode serve`）であり、OpenAPI 仕様、
+SSE イベントストリーム、型付き JS SDK を備えます。彼らの TUI はその
+サーバーの一クライアント、IDE プラグインはもう一つ。BuzzAgent は三番目の
+クライアント、すなわちスタンドアロンのデスクトップ GUI です。
+
+Kilo Code の CLI は OpenCode の**フォーク**で、アカウントとテレメトリ付き
+の VS Code 拡張（Cline 系）に包んだものです。私たちはそれを模倣しません。
+フォークは彼らの保守コストを背負い、アップストリームから切り離します。
+クライアントとして作れば、OpenCode が絶えずリリースする限りコアは常に
+最新のままです。
+
+### OpenCode は自前の GUI も出荷するようになった
+
+1.18 から OpenCode リポジトリは `opencode-desktop-*` ビルド（Electron +
+SolidJS、約 120〜150 MB）とブラウザモード（`opencode web`）を公開してい
+ます。「OpenCode のビジュアルクライアント」はそれ自体では**もはや差別化
+要因ではありません** — コア作者が持っているのですから。
+
+それでも私たちに残るもの：
+
+- **ゼロテレメトリは検証可能な事実。** 彼らのデスクトップは `@sentry/solid`
+  を組み込み、ビルド時に `VITE_SENTRY_DSN` が設定されていれば初期化します
+  （`packages/desktop/src/renderer/index.tsx`）。さらにビルドには
+  `sentryVitePlugin`。私たちのプロセスにはクラッシュレポーターも分析系の
+  依存も一切ありません。
+- **エージェントループ内のブラウザ** — コードを書き、結果を開き、スクリーン
+  ショットがツール結果として返り、直す。ヘッドレスだけではありません：CDP
+  で起動中の Chrome にアタッチもでき、ユーザーがログイン済みのプロファイル
+  でエージェントが作業できます（`shell_exec` 同様に権限ゲート付き）。
+- **ワークツリー オーケストレーション** — 隔離ブランチ上で複数エージェント
+  が並列稼働、視覚モニター付き。
+- **アカウント不要、同梱ゲートウェイなし。** Zen/Go の既定経路はありません。
+
+帰結として、私たちの GUI は彼らのデスクトップと直接比較されます。それが
+基準を上げ、マイルストーン 1 が広い機能一覧ではなく狭く信頼性の高い一撃
+である理由です。
+
+彼らのデスクトップから有用な先行例：`packages/desktop/src/main/sidecar.ts`
+は `OPENCODE_SERVER_PASSWORD` 付きでサーバーを起動し、ランダムポート、
+自分のオリジンに限定した CORS、`NO_PROXY` へのループバック強制追加、システム
+CA 証明書の読み込みを行います。私たちは同じ強化を採用します。
+
+## アーキテクチャ
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  BuzzAgent (Tauri + React)                              │
+│                                                         │
+│  ビジュアル層  ──HTTP + SSE──►  opencode serve           │
+│  チャット · diff · ファイル ·   （sidecar バイナリ、      │
+│  プロバイダ · 権限 ·             ピン留めしたバージョン）  │
+│  ワークツリー                                            │
+│                                                         │
+│  Rust 層                                                 │
+│  · コアプロセスの監督                                    │
+│  · 組み込みブラウザ (CDP) ──コアツールとして登録──         │
+│  · git worktree オーケストレーション                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+- **コア = OpenCode。** ツールループ、ネイティブな関数呼び出し、ストリーミング、
+  セッションと再開、コンパクション、権限、LSP、MCP、grep/glob/symbols、
+  AGENTS.md、スキル、スラッシュコマンド、75+ プロバイダ、OAuth。これらを
+  一つも再実装しません。
+- **GUI = BuzzAgent。** ツール呼び出しカード付きチャット、視覚 diff、ファイル
+  ツリー、権限受信箱、ロール別モデル/推論コントロール、ワークツリー
+  モニター。
+- **コアにないネイティブ追加機能。** エージェントループ内の組み込みブラウザ。
+  隔離 git worktree 上の並列エージェント。
+
+フロントエンドは HTTP と SSE でコアと**直接**通信し、**ピン留めした**
+バージョンの OpenAPI 仕様（`GET /doc`）から生成した `@opencode-ai/sdk` を
+使います。Rust はエージェントのトラフィックをプロキシしません。Rust は
+次だけをします。
+
+1. `opencode serve` を起動・監督する（ランダムポート、パスワード、ヘルス
+   チェック）。
+2. コアだけでは実現できないネイティブツールを公開する（ブラウザ、
+   ワークツリー）。
+
+これは OpenCode が内部で使うのと同じ分業です。TUI はクライアント、
+サーバーがランタイムです。
+
+## なぜ Tauri か（そしてその代償）
+
+ホットパス — ストリーミングされるトークン、ツールカード、diff — は
+webview からローカルコアへ HTTP/SSE で直接流れます。Tauri の IPC は
+**通りません**から、シェルの IPC スループットはクリティカルパス上にあり
+ません。デスクトップシェルはパッケージングとネイティブ能力の決断であり、
+パフォーマンスの決断ではないのです。
+
+Tauri である理由：
+
+- プロセス監督、CDP によるブラウザ制御、git ワークツリーのためにネイティブ
+  層がどうしても必要で、そのコードはすでに存在しテストも通っています。
+- Electron への移行は OpenCode 自身のデスクトップ（Electron + SolidJS +
+  sidecar）と全く同じスタックに乗ることで、コア作者が先行しており私たちは
+  何も差別化できません。
+- 彼らの Electron テンプレートには Sentry 統合が付いてきます。「テレメトリ
+  なし」の約束は、私たちが制御するスタックの方が真に保ちやすい。
+- バンドルサイズはここでは弱い論拠です。コアバイナリだけで約 57 MB あり、
+  5 MB 対 120 MB のシェル差は決め手になりません。
+
+本当のコスト、包み隠さず：
+
+- **三つの異なる webview。** Windows は WebView2（Chromium、自己更新）、
+  macOS は WKWebView、Linux は `webkit2gtk`。Tauri 自身の表によれば
+  `webkit2gtk` 2.36 ≈ Safari 16 で、古いディストロはさらに遅れています。
+  Linux が最弱のターゲットで、レンダリングバグはまずそこに出ます。緩和策：
+  保守的な CSS、最先端の Web API を使わない、実物の `webkit2gtk` での
+  テスト。
+- **一つのウィンドウに複数 webview は Tauri の `unstable` フラグの後ろ。**
+  ブラウザパネルに関わります：生きた webview を二つ目に埋め込むより、CDP +
+  スクリーンショット/ストリームを UI に表示するか、別ウィンドウを受け入れる
+  方が良い。
+- Rust のビルド時間と、Electron より小さいプラグインエコシステム。
+
+### 検討した代替案
+
+| 選択肢 | 判定 |
+|---|---|
+| **Electron** | 最も予測可能な UX：どこでも同じ Chromium、最高のエコシステム、扱いやすい devtools。既定としては却下 — OpenCode デスクトップそのもののスタックであり、ネイティブコードは結局 node アドオンで書くことに。`webkit2gtk` バグが手に負えなくなった場合の正直な退路。 |
+| **Go + Wails** | Tauri と同じシステム webview モデルなので同じ `webkit2gtk` 問題を抱え、既存の Rust コードを手放すことになる。Go にここで利はありません：コアは Go ではなく、私たちのネイティブ作業（CDP、ワークツリー、監督）も Go で簡単にはなりません。 |
+| **純 Rust GUI**（egui、Iced、GPUI、Dioxus native、Slint） | webview 由来のバグの種類を根絶し、本物のネイティブ性能を得られます。しかしチャット、markdown、シンタックスハイライト、diff 表示、ファイルツリーをすべて手作りすることに — コーディングエージェント GUI が評価されるまさにその面です。何年もかかる回り道で、ブラウザパネルは極めて困難になります。v1 では非現実的。 |
+| **Web のみの UI**（自分のフロントエンドをブラウザで提供） | 最も安価で、第二ターゲットとして本当に有用 — しかし OpenCode はすでに `opencode web` を出しており、ブラウザタブはネイティブメニューやワークツリー、組み込みブラウザを持ち得ません。後の追加モードとしては良く、製品としては不可。 |
+| **Flutter / .NET / Qt** | ネイティブ品質のウィジェット、しかし React の再利用はできず、「markdown + diff + コードの描画」のエコシステムは web より弱い。戦略的利得のない大規模な書き直し。 |
+| **VS Code 拡張** | すぐ馴染み安価ですが、それこそ明確に対峙する Cline/Kilo の箱であり、スタンドアロン/テレメトリなしの物語も潰れます。 |
+
+決定：**今は Tauri + React**。Electron は Linux の webview 欠陥が手に負え
+ないと証明されたときの文書化された退路です。UI をコアのただの HTTP/SSE
+クライアントに保つことこそが、その退路を安くするのです — エージェント
+ロジックはシェルの中に住んでいないからシェルは交換可能です。
+
+### コアに Oh My Pi を使わない理由
+
+[oh-my-pi](https://github.com/can1357/oh-my-pi)（MIT、約 3 万スター）は
+強力なエージェント — 場所によっては OpenCode より深い：ループ内 LSP、DAP、
+hashline 編集、大きなネイティブ Rust 層、`pr://`/`issue://`/`agent://` の
+URI スキーム、モデルフォールバックチェーン。それでも*この製品*には間違った
+コアです。
+
+- **HTTP サーバーがない。** 表面は四つ：TUI、ワンショットプロンプト、
+  プロセス内 Node SDK、そして **stdio** 上の `--mode rpc` / `acp`。ブラウザ
+  は stdio を話せないため、Rust が全メッセージをプロキシするはめになります
+  — 私たちが意図的に取り除いたまさにその層です — しかも彼らの RPC は
+  1 MiB 単位の手動フレーミングとプロトコル交渉を要求します。OpenAPI 仕様が
+  なければ生成クライアントもありません。
+- **止められないテレメトリ。** 永続的なインストール UUID
+  （`~/.omp/install-id`、彼らの `docs/install-id.md` に記載）はエージェント
+  状態を消しても残り、とりわけホスト名も送る auth ブローカーの使用レポートや
+  auto-QA プッシュにデータを供給します。これを除くには彼らのランタイムを
+  フォークするしかなく、他人のコアを使う意味が消えます。
+- **ニッチは埋まっている：** `gooey-pi`、`pi-desktop`、`ohmypi-craft`、
+  `ompweb` がすでに OMP の GUI として存在します。
+
+第二のバックエンドを加える日が来たら、**ACP** — 共通プロトコル — 経由で、
+アダプターインターフェースの背後で、OpenCode の一撃が固まってからにし
+ます。
+
+## インターフェースの品質こそが製品
+
+ここまでの話は配管です。BuzzAgent を選ぶ理由はインターフェースであり、
+それゆえ「動くか」ではなく基準で裁かれます：ネットワークで何もブロック
+しない、ストリーミング中も 60 fps、レイアウトシフトなし、キーボード
+ファースト、シンタックスハイライト付きの本物のサイドバイサイド diff、
+長いセッションの仮想化、設計された空/エラー/オフライン状態、ダーク**と**
+ライトの両テーマ、そして本物のアクセシビリティ（フォーカス、コントラスト、
+メッセージストリームのスクリーンリーダー対応）。
+
+完全な基準、採用したフロントエンドスタック（React 19、Tailwind 4、Radix、
+Shiki、CodeMirror 6、TanStack Virtual、cmdk）、依存追加のルールは
+[PLAN.md](./PLAN.md#ui-quality-bar) にあります。
+
+## 設定がどのようにコアへ届くか
+
+UI はコア状態の第二のコピーを決して保持しません。例 — ユーザーが API
+キーを貼り付けた場合：
+
+1. モデルパネルが `GET /provider/auth` を呼びます。フォームはコアが返す
+   スキーマから描画されます（API キー、OAuth、デバイスフロー等）。
+2. 保存時に UI は `PUT /auth/:id` を呼びます。コアが
+   `~/.local/share/opencode/auth.json` を書きます。キーは私たちのストアにも
+   `localStorage` にも残りません。
+3. ベース URL、モデルのホワイトリスト、`share: "disabled"` は
+   `PATCH /config` を通ります。
+4. モデルピッカーは `GET /config/providers` / `GET /provider` です。
+5. あるターンで使うモデルは `POST /session/:id/message` のフィールド
+   （`model`、`agent`）です。「ロール別ルーター」はそのフィールドを選ぶ
+   私たちの UI にすぎず、75 プロバイダの前に立つ第二の HTTP クライアントでは
+   ありません。
+
+OAuth プロバイダ（Claude Pro、Copilot、GitLab Duo、DigitalOcean）は
+`POST /provider/{id}/oauth/authorize` → システムブラウザ →
+`POST /provider/{id}/oauth/callback` を使います。プロバイダ固有のコードは
+私たち側にはありません。
+
+二つのストアが再びずれたら、エージェントは起動しません。コアだけが
+設定・セッション・diff・権限の唯一の所有者です。
+
+## 私たちが作るもの、作らないもの
+
+**書きません：** プロバイダ、OAuth、ツールループ、ストリーミング、セッション、
+コンパクション、権限エンジン、LSP、MCP、grep/glob/symbols、AGENTS.md、
+スラッシュコマンド、スキル、Todo。
+
+**書きます：** ビジュアル層の全体。コアツールとしての組み込みブラウザ。
+ワークツリー オーケストレーション。権限受信箱。視覚的なモデル/推論
+ルーター。プロセス監督。パッケージング。
+
+**OpenCode をフォークしません**。ある垂直スライスがコアの意味論（システム
+プロンプト、ツールの挙動、diff のステージング）を変える必要を証明しない
+限り。その決定は証拠に基づきマイルストーン 1 の後で下され、先回りでは
+ありません。
+
+## ポジショニング
+
+```
+BuzzAgent = OpenCode コア
+          + Cline 級のビジュアルコントロール
+          + Orca 級のワークツリー オーケストレーション
+          + エージェントループ内のアプリ内ブラウザ
+          + ゼロテレメトリ
+```
+
+| | BuzzAgent | Cline / Kilo | Cursor | Claude Code | OpenCode |
+|---|---|---|---|---|---|
+| オープンソース | はい | はい | いいえ | いいえ | はい |
+| ゼロテレメトリ | はい（監査済み — 下記参照） | いいえ | いいえ | いいえ | ほぼ（share/Zen は任意） |
+| ビジュアル GUI | スタンドアロンデスクトップ | VS Code | はい | いいえ | TUI / web |
+| ループ内の内蔵ブラウザ | はい | いいえ | いいえ | いいえ | いいえ |
+| ワークツリー オーケストレーション | はい | いいえ | いいえ | いいえ | セッションのみ |
+| サブエージェント、LSP、MCP、権限 | コア経由 | 部分的 | 部分的 | はい | はい |
+| 将来的なエージェント非依存 | アダプターインターフェース、OpenCode が最初 | いいえ | いいえ | いいえ | 該当なし |
+
+Kilo Code は OpenCode のコアが製品を背負えることを証明し、MIT はそれを
+許します。その後彼らは IDE + テレメトリ + 課金のニッチを占めました。彼らが
+空けたニッチこそこれです：スタンドアロンデスクトップ、アカウントなし、
+テレメトリなし、ブラウザ + ワークツリー。
+
+## ゼロテレメトリ — 検証済み
+
+監査（マイルストーン 0）は完了し、実証的に検証済みです。完全な再現手順は
+[docs/telemetry-audit.md](./docs/telemetry-audit.md) にあります。
+
+- **サードパーティのテレメトリはゼロ。** コアバイナリに Sentry、PostHog、
+  Segment、Mixpanel、Datadog、いかなる分析 SDK もありません。
+- **外向きのネットワーク呼び出しは強制オフ。** 会話共有
+  （`"share": "disabled"`）、自己更新（`"autoupdate": false`）、Zen の小型
+  モデルは、ディスク上に強制する設定でオフにされます。
+- **分離された環境。** 状態・キャッシュ・DB・ログのすべてがアプリのデータ
+  ディレクトリ内に隔離されます（`XDG_CONFIG_HOME`、`XDG_STATE_HOME`、
+  `XDG_DATA_HOME`、`XDG_CACHE_HOME`）。
+- **セキュリティ。** ランダム生成の 64 文字パスワードによる HTTP Basic 認証、
+  バインドは `127.0.0.1` のみ。
+
+## 現在の状態
+
+BuzzAgent は再構築され、完全に動作します：
+- **コアスーパーバイザー（Rust）**：プロセス管理の自動化、ランダムポート
+  割り当て、パスワード生成、ヘルスチェック、環境の分離、ループバックの
+  `NO_PROXY` 迂回、終了時のクリーンなティアダウン。
+- **直接 HTTP + SSE クライアント**：OpenCode コア API への直接接続、フレーム
+  境界に強いイベントストリーム解析、セッション管理、マルチターンのメッセージ
+  処理、権限ゲート。
+- **ビジュアルワークベンチ UI**：ちらつかないマークダウンによるリアルタイム
+  ストリーミングチャット、シンタックスハイライト付きコードブロック（Shiki）、
+  状態/所要時間/エラーを検査できるツールカード、権限ダイアログ。
+- **視覚 diff パネル**：git の変更をリアルタイム表示、語レベルのマーク
+  （`+`/`−`）付き、ワンクリックでファイルを元に戻す。
+- **アプリ内ブラウザパネル**：ヘッドレス Chrome の自動化とライブ CDP アタッチ
+  （`http://127.0.0.1:9222`）、ビューポートのスクリーンショットのライブ
+  ストリーミング、セレクタ操作（クリック・入力）、リアルタイムの CDP コンソール
+  ログビューア。
+- **ワークツリー オーケストレーション**：ブランチごとの隔離 git ワークツリー
+  の作成と管理、作業中プロジェクトの即時切り替え。
+- **コマンドパレット（`⌘K`）**：パネル・セッション・テーマ（ダーク、ライト、
+  システム）をキーボード主体で素早く移動。
+
+## クイックスタート
+
+### 1. 前提条件とセットアップ
 
 ```bash
 npm install
-npm run setup:core   # downloads the pinned OpenCode core binary
-npm run dev          # runs the desktop app
-npm run dist         # builds installers (built with the core inside)
+npm run setup:core   # ピン留めした OpenCode バイナリを src-tauri/bin へ
 ```
 
-## What it does
+### 2. デスクトップアプリの実行
 
-- **Streaming chat** with tool-call cards, per-role reasoning and model
-  routing; slash commands: `/init` (write AGENTS.md), `/compact`, `/export`,
-  `/copy`, `/undo`, `/redo`, `/help`; `@file` references; `!command` shell
-  passthrough.
-- **Visual diffs** with word-level highlights and single-file revert;
-  worktree-per-branch parallel agents.
-- **Providers**: 75+ via the core; API key or OAuth; inline "connect" in the
-  model picker; two-way sync with your personal opencode CLI state.
-- **Session insight**: token/cost totals and a context-window meter.
-- **Desktop shell**: custom or system window frame, tray icon, 15 interface
-  languages (including 日本語).
+```bash
+npm run dev          # Tauri デスクトップアプリ + コアの自動監督
+```
 
-## Zero telemetry
+Web プレビューの場合：
+```bash
+npm run web          # Vite のみ — http://localhost:1420
+```
 
-The core runs sandboxed (random port, per-run password, `share: disabled`,
-`autoupdate: false`); no analytics, no crash reporting anywhere. Verified:
-[docs/telemetry-audit.md](../docs/telemetry-audit.md).
+### 3. インストーラのビルド（Windows / macOS / Linux）
 
-## More
+```bash
+npm run dist         # ピン留めしたコアをダウンロードし、リリース用インストーラを構築
+```
 
-English [README](../README.md) · [PLAN](../PLAN.md) ·
-[translations index](./README.md) · License: [MIT](../LICENSE).
+成果物は `src-tauri/target/release/bundle/` に：
+
+| OS | ファイル |
+|---|---|
+| Windows | `.msi`、NSIS `.exe` |
+| macOS | `.app`、`.dmg`（アーキテクチャ別に `--target aarch64-apple-darwin` / `x86_64-apple-darwin`） |
+| Linux | `.deb`、`.rpm`、`.AppImage` |
+
+ピン留めした OpenCode コアは**すべての**インストーラの中に入ります
+（`bundle.externalBin`）。エンドユーザーは一つのファイルを入れるだけで、
+ターミナルには決して触れません。
+
+リリース同梱なしの高速イテレーション：`npm run dist:debug`。
+
+### 4. ユーザーへのリリース（三 OS を一コマンドで）
+
+バージョンタグをプッシュすると、各 OS のインストーラは CI がビルドします：
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+GitHub Actions（`.github/workflows/release.yml`）が Windows の `.msi`/`.exe`、
+macOS の `.dmg`（Apple Silicon + Intel）、Linux の `.deb`/`.rpm`/`.AppImage`
+をビルドし、すべて GitHub Release に添付します。デスクトップアプリにとって
+の `npm install -g` に最も近い形です。ユーザーは Releases ページでリンクを
+一つクリックするだけ。
+
+> 注：`npm install -g` は CLI ツール向けです。BuzzAgent はデスクトップ GUI
+> アプリで、配布はインストーラ経由。グローバルインストールの経路はあり
+> ません。
+
+### 5. 検証とテスト
+
+```bash
+npm run typecheck    # TypeScript の厳格チェック
+npm run lint         # ESLint 9
+npm test             # Vitest ユニットスイート（markdown、diff、client、store、UI）
+cd src-tauri && cargo test   # Rust のテスト：スーパーバイザー、git、ブラウザ
+npm run test:integration     # 実際の OpenCode + モックプロバイダに対する E2E
+```
+
+## ライセンス
+
+[MIT](../LICENSE) © BuzzAgent コントリビューター。
+
+OpenCode もまた MIT
+（[anomalyco/opencode](https://github.com/anomalyco/opencode)）。sidecar
+バイナリは依存であり、フォークではありません。

@@ -10,8 +10,11 @@ import tailwindcss from "@tailwindcss/vite";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
+const pkgJson = readFileSync("package.json", "utf8");
+const pkgVersion = (JSON.parse(pkgJson) as { version?: string }).version ?? "0.0.0";
+
 const uiBuildId = createHash("sha256")
-  .update(readFileSync("package.json"))
+  .update(pkgJson)
   .update(readFileSync("src/App.tsx"))
   .update(Date.now().toString())
   .digest("hex")
@@ -21,6 +24,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
     __BUILD_ID__: JSON.stringify(uiBuildId),
+    __APP_VERSION__: JSON.stringify(pkgVersion),
   },
   clearScreen: false,
   server: {

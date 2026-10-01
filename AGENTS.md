@@ -56,7 +56,10 @@ Verify all of the above before finishing any change.
 
 ## Conventions
 
-- Code comments in English; README is bilingual (English + Russian).
+- Code comments in English. Shared docs (README.md, README.html,
+  README/README.md hub, AGENTS.md, PLAN.md) are English-only; per-language
+  files (README/README.<lang>.md) are written entirely in their own language
+  — no mixing. Language self-names as link labels are the only exception.
 - Do not invent event types. Render `Message` / `Part[]` and `/event`
   payloads as defined by the pinned OpenCode spec.
 - File edits go through the core. Do not add a Tauri `write_file` that

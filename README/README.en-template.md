@@ -1,8 +1,15 @@
 # BuzzAgent — README translation template
 
-Copy this file, rename it to `README.<lang>.md`, translate the text, keep the
+Copy this file, rename it to `README.<lang>.md`, and translate **the entire
+English README** — every section, same substance, no summaries. Keep the
 links pointing at the English originals for deep detail. Do not translate
-code identifiers, file paths, or command names.
+code identifiers, file paths, or command names. Keep the project-site line
+(`🌐 … https://b4zz.com/agent`) at the top, translated into your language.
+
+Every translation must be complete: the documentation hub declares all
+language files equal, so a condensed version is a regression, not a
+shortcut. Size reference: the English README is ~345 lines. Keep the project-site line
+(`🌐 … https://b4zz.com/agent`) at the top, translated into your language.
 
 ---
 

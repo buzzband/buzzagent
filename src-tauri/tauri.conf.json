@@ -32,8 +32,8 @@
     "category": "DeveloperTool",
     "copyright": "Copyright (c) 2026 BuzzAgent Contributors",
     "licenseFile": "../LICENSE",
-    "shortDescription": "Visual control center for AI coding agents",
-    "longDescription": "Open-source desktop workbench for AI coding agents with an embedded browser, MCP support, visual diffs, model routing, per-role reasoning controls and zero telemetry.",
+    "shortDescription": "Visual control center for AI coding agents — b4zz.com/agent",
+    "longDescription": "Open-source desktop workbench for AI coding agents with an embedded browser, MCP support, visual diffs, model routing, per-role reasoning controls and zero telemetry. Project site: https://b4zz.com/agent",
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

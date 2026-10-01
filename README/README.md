@@ -1,4 +1,6 @@
-# BuzzAgent — documentation hub / хаб документации
+# BuzzAgent — documentation hub
+
+🌐 Project site: **https://b4zz.com/agent**
 
 From the English README you reached this folder through language links. The
 main documentation lives in the repo root and is English-first:
@@ -9,14 +11,15 @@ main documentation lives in the repo root and is English-first:
 - [docs/telemetry-audit.md](../docs/telemetry-audit.md) — how the zero-telemetry claim is verified
 - [docs/core-api-notes.md](../docs/core-api-notes.md) — verified HTTP/SSE contracts of the pinned core
 
-## Translations / Переводы
+## Translations
 
-Only English and Russian are full translations. The other files are condensed
-versions (a quick-start and feature summary) pointing back here for detail.
-The in-app UI itself ships with 15 built-in interface languages regardless —
-see Settings → General → Language.
+Every file below is a complete translation of the English README — same
+sections, same substance, no summaries. The in-app UI itself ships with 15
+built-in interface languages — see Settings → General → Language.
 
-- [README.ru.md](./README.ru.md) — Русский (полный перевод)
+Ordered by number of speakers worldwide (the same order as the in-app
+language picker).
+
 - [README.zh.md](./README.zh.md) — 中文
 - [README.hi.md](./README.hi.md) — हिन्दी
 - [README.es.md](./README.es.md) — Español
@@ -25,6 +28,7 @@ see Settings → General → Language.
 - [README.bn.md](./README.bn.md) — বাংলা
 - [README.pt.md](./README.pt.md) — Português
 - [README.id.md](./README.id.md) — Bahasa Indonesia
+- [README.ru.md](./README.ru.md) — Русский
 - [README.de.md](./README.de.md) — Deutsch
 - [README.ja.md](./README.ja.md) — 日本語
 - [README.tr.md](./README.tr.md) — Türkçe

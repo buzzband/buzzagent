@@ -7,8 +7,10 @@ import {
   Braces,
   Bell,
   FlaskConical,
+  FolderOpen,
   FolderTree,
   Layers,
+  Link,
   Mic,
   Brain,
   Check,
@@ -25,8 +27,9 @@ import {
   X,
 } from "lucide-react";
 import { THEME_OPTIONS, useApp, type Theme } from "../store/app";
-import { LANGUAGES, t, type Language } from "../lib/i18n";
+import { LANGUAGES, t, PROJECT_URL, type Language } from "../lib/i18n";
 import { ZOOM_LEVELS } from "../lib/zoom";
+import { copyText, appVersion, buildId } from "./ErrorBoundary";
 import { CustomProviderDialog, type ProviderDraft } from "./sidebar/CustomProviderDialog";
 import { PersonalSyncSection } from "./settings/PersonalSyncSection";
 import { OAuthProvidersSection } from "./settings/OAuthProvidersSection";
@@ -164,6 +167,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
     }))
   );
   const [tab, setTab] = useState<Tab>("general");
+  const [siteCopied, setSiteCopied] = useState(false);
   const [trayOn, setTrayOn] = useState<boolean>(
     () => localStorage.getItem("buzzagent.tray_enabled") === "true"
   );
@@ -733,6 +737,65 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
 
                 {tab === "general" && (
                   <>
+                    <Section title={t(language, "about.title")}>
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">🐝</span>
+                          <span className="text-sm font-semibold text-[var(--fg-primary)]">
+                            BuzzAgent
+                          </span>
+                          <span className="rounded border border-[var(--border-subtle)] px-1.5 py-0.5 font-mono text-2xs text-[var(--fg-muted)]">
+                            v{appVersion()}
+                          </span>
+                          <span className="font-mono text-2xs text-[var(--fg-muted)]">
+                            build {buildId()}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-2xs leading-relaxed text-[var(--fg-secondary)]">
+                          {t(language, "about.tagline")}
+                        </p>
+                        <p className="mt-1 text-2xs leading-relaxed text-[var(--fg-muted)]">
+                          {t(language, "about.licenseLine")}
+                        </p>
+                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (await copyText(PROJECT_URL)) {
+                                setSiteCopied(true);
+                                setTimeout(() => setSiteCopied(false), 1500);
+                              }
+                            }}
+                            title={t(language, "about.siteHint")}
+                            className="flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2.5 py-1.5 font-mono text-2xs text-[var(--accent)] transition-colors hover:border-[var(--border-default)]"
+                          >
+                            <Link size={11} />
+                            {PROJECT_URL.replace("https://", "")}
+                            <span className="text-[var(--fg-muted)]">
+                              {siteCopied ? t(language, "about.copied") : t(language, "about.copy")}
+                            </span>
+                          </button>
+                          <a
+                            href="https://github.com/buzzband/buzzagent"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => {
+                              if ("__TAURI_INTERNALS__" in window) e.preventDefault();
+                            }}
+                            className="flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2.5 py-1.5 font-mono text-2xs text-[var(--fg-secondary)] transition-colors hover:border-[var(--border-default)] hover:text-[var(--fg-primary)]"
+                          >
+                            <FolderOpen size={11} />
+                            {t(language, "about.source")}
+                          </a>
+                        </div>
+                        {pinnedVersion && (
+                          <p className="mt-2 text-2xs text-[var(--fg-muted)]">
+                            agent core: opencode {pinnedVersion}
+                          </p>
+                        )}
+                      </div>
+                    </Section>
+
                     <Section title={t(language, "settings.theme")}>
                       <div className="grid gap-1.5 sm:grid-cols-2">
                         {THEME_OPTIONS.map((option) => (

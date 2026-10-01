@@ -26,10 +26,20 @@ export interface CrashReport {
  * version: 0.1.13 was rebuilt several times and each had different fixes.
  */
 declare const __BUILD_ID__: string;
+declare const __APP_VERSION__: string;
 
 export function buildId(): string {
   try {
     return typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/** App version from package.json, injected at build time (Settings → About). */
+export function appVersion(): string {
+  try {
+    return typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "unknown";
   } catch {
     return "unknown";
   }

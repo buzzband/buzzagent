@@ -2,6 +2,8 @@
 
 🌐 Сайт проєкту: **https://b4zz.com/agent**
 
+⬇️ **Завантажити:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 Open-source візуальне робоче середовище для AI-кодинг-агентів. Ядро агента —
 [OpenCode](https://github.com/anomalyco/opencode) (MIT); BuzzAgent — GUI-клієнт
 навколо нього, а не ще один агентний рантайм.

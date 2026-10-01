@@ -7,6 +7,8 @@
 
   [![README / PROJECT SITE — https://b4zz.com/agent](https://img.shields.io/badge/README_%2F_PROJECT_SITE-b4zz.com%2Fagent-FCD41E?style=for-the-badge&logo=googlechrome&logoColor=1B1E23)](https://b4zz.com/agent)
 
+  [![Download](https://img.shields.io/badge/Download-b4zz.com%2Fagent%2F%23download-FE8D00?style=for-the-badge)](https://b4zz.com/agent/#download)
+
   [![License: MIT](https://img.shields.io/badge/license-MIT-FCD41E)](./LICENSE)
   [![Version 0.1.17](https://img.shields.io/badge/version-0.1.17-FE8D00)](https://github.com/buzzband/buzzagent/releases)
   [![Core: OpenCode](https://img.shields.io/badge/core-OpenCode-1B1E23)](https://github.com/anomalyco/opencode)
@@ -18,7 +20,7 @@
   [![UI languages: 15 built in](https://img.shields.io/badge/UI_languages-15%20built%20in-F5B942)](./README/README.md)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-FE8D00)](https://github.com/buzzband/buzzagent/pulls)
 
-  **EN** | [Other languages](./README/README.md) · 🌐 [README / PROJECT SITE](https://b4zz.com/agent)
+  **EN** | [Other languages](./README/README.md) · 🌐 [README / PROJECT SITE](https://b4zz.com/agent) · ⬇️ [Download](https://b4zz.com/agent/#download)
 
   🟨 ⬛ 🟨 ⬛ 🐝 ⬛ 🟨 ⬛ 🟨
 </div>
@@ -320,6 +322,10 @@ BuzzAgent is rebuilt and fully functional:
 - **Command Palette (`⌘K`)**: Fast keyboard-first navigation between panels, sessions, and themes (Dark, Light, System).
 
 ## 🚀 Quick start
+
+> ⬇️ **Just want the app?** Grab the installers (Windows / macOS / Linux)
+> at **[https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)** —
+> no terminal needed. The steps below are for building from source.
 
 ### 📋 1. Prerequisites & Setup
 

@@ -2,6 +2,8 @@
 
 🌐 Projekt-Website: **https://b4zz.com/agent**
 
+⬇️ **Herunterladen:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 Open-Source-Visual-Workbench für KI-Coding-Agenten. Der Agentenkern ist
 [OpenCode](https://github.com/anomalyco/opencode) (MIT); BuzzAgent ist der
 GUI-Client drumherum — keine weitere Agent-Runtime.

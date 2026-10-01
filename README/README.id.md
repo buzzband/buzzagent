@@ -2,6 +2,8 @@
 
 🌐 Situs web proyek: **https://b4zz.com/agent**
 
+⬇️ **Unduh:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 Workbench visual open-source untuk agen koding AI. Inti agen-nya adalah
 [OpenCode](https://github.com/anomalyco/opencode) (MIT); BuzzAgent adalah
 klien GUI di sekelilingnya — bukan runtime agen lain.

@@ -2,6 +2,8 @@
 
 🌐 Project site: **https://b4zz.com/agent**
 
+⬇️ **Download:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 From the English README you reached this folder through language links. The
 main documentation lives in the repo root and is English-first:
 

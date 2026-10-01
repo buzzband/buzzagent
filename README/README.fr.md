@@ -2,6 +2,8 @@
 
 🌐 Site web du projet : **https://b4zz.com/agent**
 
+⬇️ **Télécharger:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 Atelier visuel open source pour agents de programmation IA. Le cœur de
 l'agent est [OpenCode](https://github.com/anomalyco/opencode) (MIT) ;
 BuzzAgent est le client GUI autour — pas un autre runtime d'agent.

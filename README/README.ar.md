@@ -2,6 +2,8 @@
 
 🌐 موقع المشروع: **https://b4zz.com/agent**
 
+⬇️ **تنزيل:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 مساحة عمل بصرية مفتوحة المصدر لوكلاء البرمجة بالذكاء الاصطناعي. نواة الوكيل
 هي [OpenCode](https://github.com/anomalyco/opencode) (رخصة MIT)؛ وBuzzAgent
 هو عميل الواجهة الرسومية حولها — وليس وقت تشغيل وكلاء آخر.

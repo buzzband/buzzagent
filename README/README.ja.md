@@ -2,6 +2,8 @@
 
 🌐 プロジェクトサイト：**https://b4zz.com/agent**
 
+⬇️ **ダウンロード:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 AI コーディングエージェントのためのオープンソース・ビジュアルワークベンチ。
 エージェントのコアは [OpenCode](https://github.com/anomalyco/opencode)
 （MIT）で、BuzzAgent はその周囲の GUI クライアントです。別のエージェント

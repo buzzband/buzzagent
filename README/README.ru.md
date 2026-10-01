@@ -2,6 +2,8 @@
 
 🌐 Сайт проекта: **https://b4zz.com/agent**
 
+⬇️ **Скачать:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 **README на других языках** — [индекс переводов](./README.md) · English
 [README](../README.md)
 

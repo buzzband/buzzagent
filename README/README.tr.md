@@ -2,6 +2,8 @@
 
 🌐 Proje web sitesi: **https://b4zz.com/agent**
 
+⬇️ **İndir:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 AI kodlama ajanları için açık kaynaklı görsel çalışma tezgahı. Ajan çekirdeği
 [OpenCode](https://github.com/anomalyco/opencode) (MIT); BuzzAgent ise onun
 etrafındaki GUI istemcisi — bir başka ajan çalışma ortamı değil.

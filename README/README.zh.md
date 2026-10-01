@@ -2,6 +2,8 @@
 
 🌐 项目网站：**https://b4zz.com/agent**
 
+⬇️ **下载:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 开源的 AI 编码代理可视化工作台。代理核心是
 [OpenCode](https://github.com/anomalyco/opencode)（MIT 协议）；BuzzAgent 是
 围绕它的 GUI 客户端，而不是又一个代理运行时。

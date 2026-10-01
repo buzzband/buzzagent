@@ -9,7 +9,9 @@ code identifiers, file paths, or command names. Keep the project-site line
 Every translation must be complete: the documentation hub declares all
 language files equal, so a condensed version is a regression, not a
 shortcut. Size reference: the English README is ~345 lines. Keep the project-site line
-(`🌐 … https://b4zz.com/agent`) at the top, translated into your language.
+(`🌐 … https://b4zz.com/agent`) at the top, translated into your language,
+and keep the download line right under it
+(`⬇️ … https://b4zz.com/agent/#download`).
 
 ---
 

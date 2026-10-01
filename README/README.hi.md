@@ -2,6 +2,8 @@
 
 🌐 प्रोजेक्ट वेबसाइट: **https://b4zz.com/agent**
 
+⬇️ **डाउनलोड करें:** [https://b4zz.com/agent/#download](https://b4zz.com/agent/#download)
+
 AI कोडिंग एजेंटों के लिए ओपन-सोर्स विज़ुअल वर्कबेंच। एजेंट कोर
 [OpenCode](https://github.com/anomalyco/opencode) (MIT) है; BuzzAgent उसके
 चारों ओर का GUI क्लाइंट है — कोई और एजेंट रनटाइम नहीं।

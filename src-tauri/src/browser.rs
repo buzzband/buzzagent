@@ -1,21 +1,134 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Chrome/Chromium-family executables worth probing, in preference order.
+/// Firefox is deliberately absent: the panel drives pages over the Chrome
+/// DevTools Protocol (CDP), which Firefox does not speak (its remote agent is
+/// a different, partially-compatible protocol). A Chromium-based browser is
+/// required: Chrome, Chromium, Edge, Brave, Vivaldi, Opera, Yandex…
+const CHROMIUM_CANDIDATES: &[&str] = &[
+    "google-chrome-stable",
+    "google-chrome-beta",
+    "google-chrome-dev",
+    "google-chrome-unstable",
+    "chromium",
+    "chromium-browser",
+    "chrome",
+    "chrome-browser",
+    "microsoft-edge-stable",
+    "microsoft-edge",
+    "msedge",
+    "brave-browser",
+    "brave-browser-stable",
+    "vivaldi",
+    "vivaldi-stable",
+    "opera",
+    "yandex-browser",
+];
+
+/// macOS app bundles that do not appear on PATH as bare names.
+#[cfg(target_os = "macos")]
+const MACOS_BUNDLES: &[&str] = &[
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi",
+    "/Applications/Opera.app/Contents/MacOS/Opera",
+];
+
+/// Windows install locations that are not on PATH.
+#[cfg(target_os = "windows")]
+const WINDOWS_BUNDLES: &[&str] = &[
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files\\Chromium\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+    "C:\\Users\\%USERNAME%\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe",
+];
+
+/// Find a usable Chromium-family executable. `CHROME` env var wins (it is what
+/// headless_chrome itself honors, so we mirror it for consistent messaging),
+/// then PATH candidates, then platform install locations.
+fn find_chromium_executable() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("CHROME") {
+        let p = PathBuf::from(&path);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    for name in CHROMIUM_CANDIDATES {
+        if let Ok(path) = which::which(name) {
+            return Some(path);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    for path in MACOS_BUNDLES {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        for path in WINDOWS_BUNDLES {
+            let expanded =
+                path.replace("%USERNAME%", &std::env::var("USERNAME").unwrap_or_default());
+            let p = PathBuf::from(&expanded);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// Human-facing discovery result for the panel's error message.
+pub fn chromium_discovery_report() -> String {
+    match find_chromium_executable() {
+        Some(path) => format!("found: {}", path.display()),
+        None => {
+            let names = CHROMIUM_CANDIDATES
+                .iter()
+                .take(6)
+                .copied()
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "no Chromium-family browser found (tried: {}, …). Firefox will not work — this panel speaks the Chrome DevTools Protocol. Install Chrome/Chromium/Edge/Brave, or switch the panel to Attach mode and point it at a running Chrome with --remote-debugging-port.",
+                names
+            )
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BrowserMode {
+    Managed,
+    Attach { cdp_url: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserConfig {
-    pub headless: bool,
+    pub mode: BrowserMode,
     pub width: u32,
     pub height: u32,
+    /// Explicit executable override; None = probe the system (CHROME env, PATH
+    /// candidates, platform install locations).
+    pub executable: Option<PathBuf>,
 }
 
 impl Default for BrowserConfig {
     fn default() -> Self {
         BrowserConfig {
-            headless: true,
+            mode: BrowserMode::Managed,
             width: 1280,
             height: 800,
+            executable: None,
         }
     }
 }
@@ -54,23 +167,55 @@ impl BrowserManager {
         }
     }
 
-    async fn get_or_launch(&self) -> Result<tokio::sync::MutexGuard<'_, Option<headless_chrome::Browser>>, String> {
+    async fn get_or_launch(
+        &self,
+    ) -> Result<tokio::sync::MutexGuard<'_, Option<headless_chrome::Browser>>, String> {
         let mut guard = self.browser.lock().await;
         if guard.is_none() {
-            let options = headless_chrome::LaunchOptionsBuilder::default()
-                .headless(true)
-                .window_size(Some((self.config.width, self.config.height)))
-                .build()
-                .map_err(|e| format!("Browser launch options error: {}", e))?;
-            let browser = headless_chrome::Browser::new(options).map_err(|e| {
-                format!(
-                    "Failed to launch Chrome/Chromium (is it installed on PATH?): {}",
-                    e
-                )
-            })?;
+            let browser = match &self.config.mode {
+                BrowserMode::Managed => {
+                    // Resolve the executable ourselves instead of letting the
+                    // library fail with its bare "is it installed on PATH?":
+                    // our probe covers more names and, crucially, can say in
+                    // the error *what the user should install*.
+                    let executable = self
+                        .config
+                        .executable
+                        .clone()
+                        .or_else(find_chromium_executable)
+                        .ok_or_else(|| {
+                            format!(
+                                "No Chromium-family browser found. Firefox does not work here (this panel speaks the Chrome DevTools Protocol). Install Chrome, Chromium, Edge or Brave — or use Attach mode with a running Chrome. Details: {}",
+                                chromium_discovery_report()
+                            )
+                        })?;
+                    let options = headless_chrome::LaunchOptionsBuilder::default()
+                        .headless(true)
+                        .path(Some(executable))
+                        .window_size(Some((self.config.width, self.config.height)))
+                        .build()
+                        .map_err(|e| format!("Browser launch options error: {}", e))?;
+                    headless_chrome::Browser::new(options).map_err(|e| {
+                        format!(
+                            "Failed to launch the browser ({}): {}",
+                            chromium_discovery_report(),
+                            e
+                        )
+                    })?
+                }
+                BrowserMode::Attach { cdp_url } => {
+                    let ws_url = resolve_cdp_ws_url(cdp_url).await?;
+                    headless_chrome::Browser::connect(ws_url)
+                        .map_err(|e| format!("Failed to attach to Chrome at {}: {}", cdp_url, e))?
+                }
+            };
             *guard = Some(browser);
         }
         Ok(guard)
+    }
+
+    pub fn set_config(&mut self, config: BrowserConfig) {
+        self.config = config;
     }
 
     /// Navigate the headless browser to `url` and wait for the page to load.
@@ -135,7 +280,9 @@ impl BrowserManager {
         tab.wait_for_element(selector)
             .map_err(|e| format!("Element '{}' not found: {}", selector, e))?;
         let element = tab.find_element(selector).map_err(|e| e.to_string())?;
-        element.click().map_err(|e| format!("Focus failed: {}", e))?;
+        element
+            .click()
+            .map_err(|e| format!("Focus failed: {}", e))?;
         tab.type_str(text)
             .map_err(|e| format!("Typing failed: {}", e))?;
         Ok(())
@@ -148,6 +295,35 @@ impl BrowserManager {
     pub fn add_console_entry(&mut self, entry: ConsoleEntry) {
         self.console_logs.push(entry);
     }
+}
+
+async fn resolve_cdp_ws_url(cdp_url: &str) -> Result<String, String> {
+    if cdp_url.starts_with("ws://") || cdp_url.starts_with("wss://") {
+        return Ok(cdp_url.to_string());
+    }
+    let base = cdp_url.trim_end_matches('/');
+    let endpoint = format!("{}/json/version", base);
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(4))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let res = client
+        .get(&endpoint)
+        .send()
+        .await
+        .map_err(|e| format!("Cannot reach Chrome CDP at {}: {}", endpoint, e))?;
+
+    let json: serde_json::Value = res
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse CDP version response: {}", e))?;
+
+    json.get("webSocketDebuggerUrl")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "CDP response missing webSocketDebuggerUrl".to_string())
 }
 
 /// Most recently opened tab (the one the last navigate() created).
@@ -173,9 +349,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_is_headless() {
+    fn default_config_is_managed() {
         let cfg = BrowserConfig::default();
-        assert!(cfg.headless);
+        assert!(matches!(cfg.mode, BrowserMode::Managed));
         assert_eq!(cfg.width, 1280);
     }
 

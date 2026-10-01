@@ -1,0 +1,85 @@
+name: Release
+
+# One command for users: push a tag, get installers for Windows, macOS
+# (Apple Silicon + Intel) and Linux attached to a GitHub Release. This is how
+# `npm run dist` results reach non-developer users.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest # Apple Silicon
+            args: "--target aarch64-apple-darwin"
+          - os: macos-latest # Intel
+            args: "--target x86_64-apple-darwin"
+          - os: windows-latest
+            args: ""
+          - os: ubuntu-22.04
+            args: ""
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install system dependencies (WebKitGTK for Tauri Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Download pinned OpenCode core
+        shell: bash
+        run: ./scripts/setup-core.sh src-tauri/bin
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "BuzzAgent ${{ github.ref_name }}"
+          releaseBody: |
+            Installers for Windows, macOS (Apple Silicon & Intel) and Linux.
+
+            **Zero telemetry** 🔒 — the app talks only to your local core and the AI provider you configure.
+
+            ## Install
+            - **Windows**: download the `.msi` (or `.exe`) installer and run it
+            - **macOS**: download the `.dmg` for your architecture, open and drag to Applications
+            - **Linux**: download the `.AppImage` (chmod +x) or the `.deb`/`.rpm`
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

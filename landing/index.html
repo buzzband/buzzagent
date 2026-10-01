@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BuzzAgent — See everything your AI coding agent does 🐝</title>
+<meta name="description" content="Stop squinting at terminals. BuzzAgent gives your AI coding agent a full visual workbench — streaming chat, visual diffs, browser in the loop, parallel worktrees. Zero telemetry. MIT. Windows, macOS, Linux.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐝</text></svg>">
+
+<!-- Tailwind CSS (Play CDN — static hosting, no build step) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ["Inter", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
+          display: ["Space Grotesk", "Inter", "system-ui", "sans-serif"],
+        },
+        colors: {
+          ink:   "#0b0f16",
+          panel: "#11161f",
+          line:  "#232a36",
+          bee:   "#f5b942",
+          beedim:"#f5b94222",
+          mint:  "#3fb950",
+        },
+      },
+    },
+  };
+</script>
+
+<!-- Typography -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  html { scroll-behavior: smooth; }
+  body { background: #0b0f16; }
+  ::selection { background: #f5b94255; }
+
+  /* ---------- Framer-style scroll reveal ---------- */
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(28px) scale(.985);
+    transition: opacity .8s cubic-bezier(.16,1,.3,1), transform .8s cubic-bezier(.16,1,.3,1);
+    transition-delay: var(--d, 0ms);
+  }
+  [data-reveal].is-visible { opacity: 1; transform: translateY(0) scale(1); }
+  @media (prefers-reduced-motion: reduce) {
+    [data-reveal] { opacity: 1 !important; transform: none !important; transition: none !important; }
+  }
+
+  /* ---------- Floating orbs ---------- */
+  @keyframes drift {
+    0%, 100% { transform: translate3d(0,0,0) scale(1); }
+    33%      { transform: translate3d(30px,-40px,0) scale(1.08); }
+    66%      { transform: translate3d(-25px,20px,0) scale(.95); }
+  }
+  .orb { animation: drift 14s ease-in-out infinite; will-change: transform; }
+
+  /* ---------- Floating chips on hero mockup ---------- */
+  @keyframes floaty {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-12px); }
+  }
+  .floaty { animation: floaty 5s ease-in-out infinite; }
+  .floaty-slow { animation: floaty 7s ease-in-out infinite; animation-delay: 1.2s; }
+
+  /* ---------- Marquee ticker ---------- */
+  @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .marquee-track {
+    display: flex; width: max-content;
+    animation: marquee 28s linear infinite;
+  }
+  .marquee:hover .marquee-track { animation-play-state: paused; }
+  .marquee-mask {
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+
+  /* ---------- Gradient text & glow ---------- */
+  .grad-text {
+    background: linear-gradient(92deg, #ffd47e 0%, #f5b942 45%, #ff9d5c 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .glow { box-shadow: 0 0 80px -20px #f5b94255, 0 0 40px -10px #f5b94233; }
+
+  /* ---------- Card hover lift ---------- */
+  .lift { transition: transform .35s cubic-bezier(.16,1,.3,1), box-shadow .35s ease, border-color .35s ease; }
+  .lift:hover { transform: translateY(-6px); border-color: #f5b94266; box-shadow: 0 24px 60px -24px #000000cc; }
+
+  /* ---------- Video fallback ---------- */
+  .video-fallback {
+    background:
+      radial-gradient(80% 120% at 20% 10%, #2a2413 0%, transparent 60%),
+      radial-gradient(70% 100% at 85% 30%, #14231a 0%, transparent 55%),
+      linear-gradient(160deg, #0d1117 0%, #0b0f16 100%);
+  }
+
+  /* ---------- FAQ accordion ---------- */
+  details.faq summary::-webkit-details-marker { display: none; }
+  details.faq summary { list-style: none; cursor: pointer; }
+  details.faq .chev { transition: transform .3s ease; }
+  details.faq[open] .chev { transform: rotate(180deg); }
+  details.faq .faq-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .35s ease; }
+  details.faq[open] .faq-body { grid-template-rows: 1fr; }
+
+  /* ---------- Scroll progress ---------- */
+  #progress { transform-origin: 0 50%; transform: scaleX(0); }
+
+  /* ---------- Blob parallax layer ---------- */
+  .parallax { will-change: transform; transition: transform .2s ease-out; }
+
+  /* ---------- Sticky CTA ---------- */
+  #sticky-cta { transform: translateY(120%); transition: transform .45s cubic-bezier(.16,1,.3,1); }
+  #sticky-cta.show { transform: translateY(0); }
+  #sticky-cta.hide { transform: translateY(120%); }
+</style>
+</head>
+
+<body class="bg-ink text-slate-200 font-sans antialiased overflow-x-hidden">
+
+<!-- ============================ scroll progress ============================ -->
+<div id="progress" class="fixed inset-x-0 top-0 z-[60] h-1 bg-gradient-to-r from-bee to-orange-400"></div>
+
+<!-- ============================ NAVBAR ============================ -->
+<header class="fixed inset-x-0 top-4 z-50 px-4">
+  <nav id="nav" class="mx-auto flex max-w-6xl items-center gap-3 rounded-full border border-line/80 bg-panel/70 px-5 py-3 backdrop-blur-xl transition-all duration-300">
+    <a href="#top" class="flex items-center gap-2 font-display text-lg font-bold text-white">
+      <span class="text-2xl">🐝</span> BuzzAgent
+    </a>
+    <div class="mx-auto hidden items-center gap-1 text-sm text-slate-400 md:flex">
+      <a class="rounded-full px-4 py-2 transition hover:bg-white/5 hover:text-white" href="#why">Why</a>
+      <a class="rounded-full px-4 py-2 transition hover:bg-white/5 hover:text-white" href="#features">Features</a>
+      <a class="rounded-full px-4 py-2 transition hover:bg-white/5 hover:text-white" href="#how">How it works</a>
+      <a class="rounded-full px-4 py-2 transition hover:bg-white/5 hover:text-white" href="#compare">Compare</a>
+      <a class="rounded-full px-4 py-2 transition hover:bg-white/5 hover:text-white" href="#faq">FAQ</a>
+    </div>
+    <div class="ml-auto flex items-center gap-2 md:ml-0">
+      <a href="https://github.com/buzzband/buzzagent" target="_blank" rel="noopener"
+         class="hidden rounded-full border border-line px-5 py-2.5 text-sm font-medium text-slate-300 transition hover:border-bee/50 hover:text-white sm:block">
+        ★ GitHub
+      </a>
+      <a href="#download"
+         class="rounded-full bg-bee px-5 py-2.5 text-sm font-semibold text-ink transition hover:brightness-110 hover:shadow-[0_0_30px_-6px_#f5b94288]">
+        Download free ⬇️
+      </a>
+    </div>
+  </nav>
+</header>
+
+<!-- ============================ HERO — ATTENTION ============================ -->
+<section id="top" class="relative overflow-hidden px-4 pt-40 pb-24 md:pt-48 md:pb-32">
+  <!-- orbs -->
+  <div class="pointer-events-none absolute inset-0" aria-hidden="true">
+    <div class="parallax orb absolute -top-24 left-[8%] h-96 w-96 rounded-full bg-bee/10 blur-3xl" data-depth="0.03"></div>
+    <div class="parallax orb absolute top-40 right-[5%] h-[28rem] w-[28rem] rounded-full bg-emerald-500/10 blur-3xl" style="animation-delay:-6s" data-depth="0.05"></div>
+    <div class="parallax orb absolute bottom-0 left-[35%] h-80 w-80 rounded-full bg-orange-500/10 blur-3xl" style="animation-delay:-3s" data-depth="0.04"></div>
+  </div>
+
+  <div class="relative mx-auto max-w-6xl text-center">
+    <div data-reveal class="mx-auto mb-8 inline-flex items-center gap-2 rounded-full border border-line bg-panel/80 px-5 py-2 text-sm text-slate-300">
+      <span class="relative flex h-2 w-2"><span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-mint opacity-60"></span><span class="relative inline-flex h-2 w-2 rounded-full bg-mint"></span></span>
+      Open source · MIT · Zero telemetry · No account 🔒
+    </div>
+
+    <h1 data-reveal style="--d:80ms" class="font-display mx-auto max-w-5xl text-5xl font-bold leading-[1.05] tracking-tight text-white md:text-7xl">
+      Stop squinting at terminals.<br>
+      <span class="grad-text">Watch your agent work.</span> 🐝
+    </h1>
+
+    <p data-reveal style="--d:160ms" class="mx-auto mt-7 max-w-2xl text-lg leading-relaxed text-slate-400 md:text-xl">
+      Your AI agent writes the code. BuzzAgent shows you <span class="font-medium text-slate-200">every diff, every command, every step</span> —
+      approve or veto in one click. The strongest open agent core, wrapped in the interface it deserves. ⚡
+    </p>
+
+    <div data-reveal style="--d:240ms" class="mt-10 flex flex-wrap items-center justify-center gap-4">
+      <a href="#download" class="glow rounded-full bg-bee px-8 py-4 font-semibold text-ink transition hover:brightness-110">
+        Download free — no account ⬇️
+      </a>
+      <a href="https://github.com/buzzband/buzzagent" target="_blank" rel="noopener"
+         class="rounded-full border border-line bg-panel/70 px-8 py-4 font-semibold text-slate-200 backdrop-blur transition hover:border-bee/50 hover:text-white">
+        ★ Star on GitHub
+      </a>
+    </div>
+
+    <p data-reveal style="--d:300ms" class="mt-5 text-sm text-slate-500">
+      Windows · macOS · Linux — one installer, the agent core included. 📦
+    </p>
+
+    <!-- hero mockup with floating chips -->
+    <div data-reveal style="--d:320ms" class="relative mx-auto mt-20 max-w-4xl">
+      <div class="overflow-hidden rounded-[2rem] border border-line bg-panel shadow-2xl">
+        <div class="flex items-center gap-2 border-b border-line px-5 py-3.5">
+          <span class="h-3 w-3 rounded-full bg-[#ff5f57]"></span>
+          <span class="h-3 w-3 rounded-full bg-[#febc2e]"></span>
+          <span class="h-3 w-3 rounded-full bg-[#28c840]"></span>
+          <span class="ml-3 rounded-md bg-ink px-3 py-1 text-xs text-slate-500">buzzagent — agent conversation</span>
+        </div>
+        <img src="https://images.unsplash.com/photo-1498050108023-c5249f4df085?q=80&w=1600&auto=format&fit=crop"
+             alt="BuzzAgent interface over a real project" class="h-[420px] w-full object-cover opacity-90 md:h-[480px]" loading="eager">
+      </div>
+
+      <div class="floaty absolute -left-6 top-16 hidden rounded-2xl border border-line bg-panel/90 px-4 py-3 text-sm backdrop-blur md:block">
+        <span class="mr-2 text-lg">🔀</span><span class="text-slate-300">Diff approved</span> <span class="text-mint">✓</span>
+      </div>
+      <div class="floaty-slow absolute -right-8 top-28 hidden rounded-2xl border border-line bg-panel/90 px-4 py-3 text-sm backdrop-blur md:block">
+        <span class="mr-2 text-lg">🛡️</span><span class="text-slate-300">Permission required</span> <span class="text-bee">shell · rm -rf</span>
+      </div>
+      <div class="floaty absolute -bottom-5 left-1/4 hidden rounded-2xl border border-line bg-panel/90 px-4 py-3 text-sm backdrop-blur md:block">
+        <span class="mr-2 text-lg">🌿</span><span class="text-slate-300">Worktree</span> <span class="font-mono text-xs text-slate-500">agent/fix-parser</span>
+      </div>
+    </div>
+
+    <!-- stats -->
+    <div data-reveal style="--d:400ms" class="mx-auto mt-16 grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-4">
+      <div class="rounded-3xl border border-line bg-panel/60 px-6 py-5"><div class="font-display text-3xl font-bold text-white" data-count="75" data-suffix="+">0</div><div class="mt-1 text-sm text-slate-500">LLM providers 🔌</div></div>
+      <div class="rounded-3xl border border-line bg-panel/60 px-6 py-5"><div class="font-display text-3xl font-bold text-white" data-count="0" data-suffix="">0</div><div class="mt-1 text-sm text-slate-500">telemetry calls 🚫</div></div>
+      <div class="rounded-3xl border border-line bg-panel/60 px-6 py-5"><div class="font-display text-3xl font-bold text-white" data-count="100" data-suffix="%">0</div><div class="mt-1 text-sm text-slate-500">open source, MIT 💚</div></div>
+      <div class="rounded-3xl border border-line bg-panel/60 px-6 py-5"><div class="font-display text-3xl font-bold text-white" data-count="3" data-suffix="">0</div><div class="mt-1 text-sm text-slate-500">platforms, one repo 🖥️</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ MARQUEE ============================ -->
+<div class="marquee marquee-mask overflow-hidden border-y border-line/70 bg-panel/40 py-5">
+  <div class="marquee-track gap-10 pr-10 text-slate-500">
+    <span>⚡ Streaming chat</span><span>🔀 Visual diffs</span><span>🌐 Browser in the loop</span><span>🌿 Git worktrees</span><span>🛡️ Permission inbox</span><span>🧩 Skills &amp; MCP</span><span>💬 Any provider</span><span>🔒 Zero telemetry</span><span>⌨️ Voice input</span><span>🔔 ntfy push</span><span>🐝 MIT licensed</span>
+    <span>⚡ Streaming chat</span><span>🔀 Visual diffs</span><span>🌐 Browser in the loop</span><span>🌿 Git worktrees</span><span>🛡️ Permission inbox</span><span>🧩 Skills &amp; MCP</span><span>💬 Any provider</span><span>🔒 Zero telemetry</span><span>⌨️ Voice input</span><span>🔔 ntfy push</span><span>🐝 MIT licensed</span>
+  </div>
+</div>
+
+<!-- ============================ INTEREST — THE PAIN ============================ -->
+<section id="why" class="relative overflow-hidden px-4 py-24 md:py-32">
+  <div class="parallax orb pointer-events-none absolute right-[10%] top-10 h-72 w-72 rounded-full bg-bee/10 blur-3xl" aria-hidden="true" data-depth="0.06"></div>
+  <div class="mx-auto max-w-5xl">
+    <div class="text-center">
+      <p data-reveal class="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">The problem 🧭</p>
+      <h2 data-reveal style="--d:80ms" class="font-display mx-auto max-w-3xl text-4xl font-bold leading-tight text-white md:text-5xl">
+        Powerful agents shouldn't be blind.<br>
+        <span class="grad-text">Visual tools shouldn't spy on you.</span>
+      </h2>
+    </div>
+
+    <div class="mt-14 grid gap-6 md:grid-cols-2">
+      <div data-reveal class="rounded-[2rem] border border-red-500/20 bg-red-500/[.04] p-8">
+        <h3 class="font-display text-xl font-semibold text-red-300">Without BuzzAgent 😖</h3>
+        <ul class="mt-5 space-y-3 text-sm leading-relaxed text-slate-400">
+          <li class="flex gap-3"><span class="text-red-400">✗</span> You paste an API key into a VS Code extension that quietly ships telemetry and accounts.</li>
+          <li class="flex gap-3"><span class="text-red-400">✗</span> The agent edits files for ten minutes — and you find out what it did by reading <span class="font-mono text-slate-300">git diff</span> afterwards, in a terminal.</li>
+          <li class="flex gap-3"><span class="text-red-400">✗</span> "It broke my app" — but the agent never saw your browser, so it fixes blind.</li>
+          <li class="flex gap-3"><span class="text-red-400">✗</span> One task at a time, one branch, one waiting human.</li>
+          <li class="flex gap-3"><span class="text-red-400">✗</span> Shell commands run first and ask later — or never.</li>
+        </ul>
+      </div>
+
+      <div data-reveal style="--d:120ms" class="rounded-[2rem] border border-mint/25 bg-mint/[.04] p-8">
+        <h3 class="font-display text-xl font-semibold text-mint">With BuzzAgent 😎</h3>
+        <ul class="mt-5 space-y-3 text-sm leading-relaxed text-slate-300">
+          <li class="flex gap-3"><span class="text-mint">✓</span> Keys live in the core's own storage — the UI never holds a copy, no telemetry ever ships.</li>
+          <li class="flex gap-3"><span class="text-mint">✓</span> Every file change streams into a live, word-level diff — accept, revert or discuss before it lands.</li>
+          <li class="flex gap-3"><span class="text-mint">✓</span> The agent opens your app in a built-in browser, screenshots it, reads the console — and fixes what it actually sees.</li>
+          <li class="flex gap-3"><span class="text-mint">✓</span> Spawn parallel agents on isolated git worktrees and watch them all from one monitor.</li>
+          <li class="flex gap-3"><span class="text-mint">✓</span> Destructive commands queue in a permission inbox and run only when you say so.</li>
+        </ul>
+      </div>
+    </div>
+
+    <p data-reveal style="--d:200ms" class="mx-auto mt-12 max-w-3xl text-center text-lg leading-relaxed text-slate-400">
+      The market splits in two: visual-but-weak assistants locked inside IDEs, and powerful-but-blind terminal agents.
+      BuzzAgent refuses the trade-off — a full visual workbench over the strongest open agent core,
+      running on <span class="font-medium text-slate-200">your</span> machine, calling
+      <span class="font-medium text-slate-200">no</span> server but yours and your provider's. 🔒
+    </p>
+  </div>
+</section>
+
+<!-- ============================ VIDEO BANNER ============================ -->
+<section class="px-4 py-24 md:py-32">
+  <div data-reveal class="relative mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] border border-line glow">
+    <video id="bgvid" class="absolute inset-0 h-full w-full object-cover"
+           autoplay muted loop playsinline preload="metadata"
+           poster="https://images.unsplash.com/photo-1555066931-4365d14bab8c?q=80&w=1800&auto=format&fit=crop">
+      <source src="https://videos.pexels.com/video-files/3130284/3130284-uhd_2560_1440_30fps.mp4" type="video/mp4">
+      <source src="https://cdn.coverr.co/videos/coverr-typing-on-a-keyboard-1573/1080p.mp4" type="video/mp4">
+    </video>
+    <div class="absolute inset-0 bg-gradient-to-t from-ink via-ink/60 to-ink/30"></div>
+
+    <div class="video-fallback absolute inset-0 -z-10"></div>
+
+    <div class="relative px-6 py-28 text-center md:py-40">
+      <p class="font-display text-4xl font-bold leading-tight text-white md:text-6xl">
+        See every move. <span class="grad-text">Approve every step.</span> 🎬
+      </p>
+      <p class="mx-auto mt-5 max-w-xl text-lg text-slate-300/90">
+        Streaming text, tool cards with real arguments, live diffs, console errors surfaced as text the agent can act on.
+        Nothing happens on your machine without a visible trace.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FEATURES (bento) — DESIRE ============================ -->
+<section id="features" class="px-4 py-24 md:py-32">
+  <div class="mx-auto max-w-6xl">
+    <div class="mb-16 text-center">
+      <p data-reveal class="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-bee">What you get ✨</p>
+      <h2 data-reveal style="--d:80ms" class="font-display text-4xl font-bold text-white md:text-5xl">Everything visual.<br>Nothing taken away. 🎁</h2>
+      <p data-reveal style="--d:160ms" class="mx-auto mt-5 max-w-2xl text-lg text-slate-400">
+        The core does the heavy lifting; the workbench makes it observable, safe and fast.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
+      <!-- big card 1 -->
+      <div data-reveal class="lift group overflow-hidden rounded-[2rem] border border-line bg-panel md:col-span-2">
+        <img src="https://images.unsplash.com/photo-1461749280684-dccba630e2f6?q=80&w=1200&auto=format&fit=crop"
+             alt="Streaming code output" class="h-64 w-full object-cover transition duration-500 group-hover:scale-[1.03]" loading="lazy">
+        <div class="p-8">
+          <div class="text-4xl">💬</div>
+          <h3 class="font-display mt-4 text-2xl font-semibold text-white">Streaming chat that never blinks</h3>
+          <p class="mt-3 leading-relaxed text-slate-400">
+            Tokens land incrementally with markdown and syntax highlighting — no reflow, no flicker, 60 fps in thousand-message sessions.
+            Inspect every tool call: the exact arguments, the duration, the error if it failed. Never a swallowed spinner.
+          </p>
+        </div>
+      </div>
+
+      <!-- big card 2 -->
+      <div data-reveal style="--d:120ms" class="lift group overflow-hidden rounded-[2rem] border border-line bg-panel">
+        <img src="https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=800&auto=format&fit=crop"
+             alt="Code changes" class="h-64 w-full object-cover transition duration-500 group-hover:scale-[1.03]" loading="lazy">
+        <div class="p-8">
+          <div class="text-4xl">🔀</div>
+          <h3 class="font-display mt-4 text-2xl font-semibold text-white">Diffs you can trust</h3>
+          <p class="mt-3 leading-relaxed text-slate-400">
+            Real side-by-side git diffs with word-level marks. Review while the agent works —
+            and roll any file back with one click, straight from the panel.
+          </p>
+        </div>
+      </div>
+
+      <!-- row of three -->
+      <div data-reveal class="lift overflow-hidden rounded-[2rem] border border-line bg-panel">
+        <img src="https://images.unsplash.com/photo-1485827404703-89b55fcc595e?q=80&w=800&auto=format&fit=crop"
+             alt="Agent with a browser" class="h-44 w-full object-cover transition duration-500 group-hover:scale-[1.03]" loading="lazy">
+        <div class="p-7">
+          <div class="text-3xl">🌐</div>
+          <h3 class="font-display mt-3 text-xl font-semibold text-white">Browser in the loop</h3>
+          <p class="mt-2 text-sm leading-relaxed text-slate-400">
+            Managed headless Chrome — or attach to your real browser over CDP, logged-in profile included.
+            Screenshots and console stream straight into the agent's context, so it fixes what it actually sees.
+          </p>
+        </div>
+      </div>
+
+      <div data-reveal style="--d:100ms" class="lift rounded-[2rem] border border-line bg-panel p-7">
+        <div class="text-3xl">🌿</div>
+        <h3 class="font-display mt-3 text-xl font-semibold text-white">Parallel worktrees</h3>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Run three agents on three branches at once — isolated git worktrees, one visual monitor.
+          Ship the best, discard the rest. 🧪
+        </p>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <span class="rounded-full bg-ink px-3 py-1 font-mono text-xs text-slate-500">agent/fix-parser</span>
+          <span class="rounded-full bg-ink px-3 py-1 font-mono text-xs text-slate-500">agent/new-ui</span>
+        </div>
+      </div>
+
+      <div data-reveal style="--d:200ms" class="lift rounded-[2rem] border border-line bg-panel p-7">
+        <div class="text-3xl">🛡️</div>
+        <h3 class="font-display mt-3 text-xl font-semibold text-white">Permission inbox</h3>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Shell commands, file writes, browser control — all wait for your explicit yes.
+          Allow once, always for this tool, or deny. You are the gatekeeper. 🚦
+        </p>
+        <div class="mt-4 flex gap-2">
+          <span class="rounded-full bg-mint/15 px-3 py-1 text-xs font-medium text-mint">Allow once</span>
+          <span class="rounded-full bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400">Deny</span>
+        </div>
+      </div>
+
+      <!-- row of extras -->
+      <div data-reveal class="lift rounded-[2rem] border border-line bg-panel p-7">
+        <div class="text-3xl">🔌</div>
+        <h3 class="font-display mt-3 text-xl font-semibold text-white">75+ providers, OAuth included</h3>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Anthropic, OpenAI, Google, local Ollama — any OpenAI-compatible endpoint. Sign in with Claude Pro or Copilot via OAuth; keys never leave the core.
+        </p>
+      </div>
+
+      <div data-reveal style="--d:100ms" class="lift rounded-[2rem] border border-line bg-panel p-7">
+        <div class="text-3xl">🧩</div>
+        <h3 class="font-display mt-3 text-xl font-semibold text-white">Skills, MCP &amp; slash commands</h3>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Toggle MCP servers per project, build custom agent modes, run <span class="font-mono text-xs">/compact</span>, <span class="font-mono text-xs">/undo</span>, <span class="font-mono text-xs">/export</span> from the composer.
+        </p>
+      </div>
+
+      <div data-reveal style="--d:200ms" class="lift rounded-[2rem] border border-line bg-panel p-7">
+        <div class="text-3xl">⌨️</div>
+        <h3 class="font-display mt-3 text-xl font-semibold text-white">Voice, notifications, queue</h3>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Dictate prompts through your local Whisper server, queue tasks while the agent works, get desktop + ntfy pings when a run finishes.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ SOCIAL PROOF ============================ -->
+<section class="px-4 py-24 md:py-28">
+  <div class="mx-auto max-w-6xl">
+    <div class="mb-14 text-center">
+      <p data-reveal class="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-bee">Early bees 🐝</p>
+      <h2 data-reveal style="--d:80ms" class="font-display text-4xl font-bold text-white md:text-5xl">Built in the open. Judged daily.</h2>
+    </div>
+    <div class="grid gap-6 md:grid-cols-3">
+      <figure data-reveal class="lift rounded-[2rem] border border-line bg-panel p-8">
+        <div class="text-bee">★★★★★</div>
+        <blockquote class="mt-4 leading-relaxed text-slate-300">"Finally, an agent UI that shows everything and hides nothing. The permission inbox alone is worth it."</blockquote>
+        <figcaption class="mt-5 text-sm text-slate-500">— beta tester, backend engineer 🐝</figcaption>
+      </figure>
+      <figure data-reveal style="--d:120ms" class="lift rounded-[2rem] border border-line bg-panel p-8">
+        <div class="text-bee">★★★★★</div>
+        <blockquote class="mt-4 leading-relaxed text-slate-300">"I run three worktree agents overnight and review the diffs over coffee. That used to be a full workday of babysitting."</blockquote>
+        <figcaption class="mt-5 text-sm text-slate-500">— beta tester, indie developer 🌿</figcaption>
+      </figure>
+      <figure data-reveal style="--d:240ms" class="lift rounded-[2rem] border border-line bg-panel p-8">
+        <div class="text-bee">★★★★★</div>
+        <blockquote class="mt-4 leading-relaxed text-slate-300">"Zero telemetry was the reason I tried it. The browser-in-the-loop is the reason I stayed."</blockquote>
+        <figcaption class="mt-5 text-sm text-slate-500">— beta tester, security consultant 🔒</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ HOW IT WORKS ============================ -->
+<section id="how" class="px-4 py-24 md:py-32">
+  <div class="mx-auto max-w-6xl">
+    <div class="mb-16 text-center">
+      <p data-reveal class="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-bee">How it works 🛠️</p>
+      <h2 data-reveal style="--d:80ms" class="font-display text-4xl font-bold text-white md:text-5xl">Sixty seconds to your first agent task. ⏱️</h2>
+    </div>
+    <div class="grid gap-6 md:grid-cols-3">
+      <div data-reveal class="lift rounded-[2rem] border border-line bg-panel p-10 text-center">
+        <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-beedim font-display text-2xl font-bold text-bee">1</div>
+        <div class="mt-5 text-4xl">📁</div>
+        <h3 class="font-display mt-4 text-xl font-semibold text-white">Pick a project folder</h3>
+        <p class="mt-3 text-sm leading-relaxed text-slate-400">The app starts a supervised agent core bound to your directory — random port, generated password, health-checked. Your files never leave your machine.</p>
+      </div>
+      <div data-reveal style="--d:120ms" class="lift rounded-[2rem] border border-line bg-panel p-10 text-center">
+        <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-beedim font-display text-2xl font-bold text-bee">2</div>
+        <div class="mt-5 text-4xl">🔑</div>
+        <h3 class="font-display mt-4 text-xl font-semibold text-white">Connect a provider</h3>
+        <p class="mt-3 text-sm leading-relaxed text-slate-400">Paste an API key or sign in via OAuth — 75+ models, local Ollama included. Auto-discovery probes the endpoint and confirms it works before you send a thing.</p>
+      </div>
+      <div data-reveal style="--d:240ms" class="lift rounded-[2rem] border border-line bg-panel p-10 text-center">
+        <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-beedim font-display text-2xl font-bold text-bee">3</div>
+        <div class="mt-5 text-4xl">⚡</div>
+        <h3 class="font-display mt-4 text-xl font-semibold text-white">Describe the task</h3>
+        <p class="mt-3 text-sm leading-relaxed text-slate-400">Watch streaming text, tool cards and diffs arrive live. Approve each step — or queue the next task and let it run.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ COMPARISON TABLE ============================ -->
+<section id="compare" class="px-4 py-24 md:py-32">
+  <div class="mx-auto max-w-5xl">
+    <div class="mb-14 text-center">
+      <p data-reveal class="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-bee">Honest comparison ⚖️</p>
+      <h2 data-reveal style="--d:80ms" class="font-display text-4xl font-bold text-white md:text-5xl">Pick your trade-off — or refuse it 🐝</h2>
+    </div>
+
+    <div data-reveal class="overflow-hidden rounded-[2rem] border border-line bg-panel">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[680px] text-left text-sm">
+          <thead>
+            <tr class="border-b border-line text-slate-400">
+              <th class="px-6 py-5 font-medium">Capability</th>
+              <th class="px-6 py-5 text-center">
+                <span class="font-display inline-flex items-center gap-2 rounded-full bg-beedim px-4 py-1.5 text-base font-semibold text-bee">🐝 BuzzAgent</span>
+              </th>
+              <th class="px-6 py-5 text-center font-medium">IDE assistants<br><span class="text-xs text-slate-500">Cline · Kilo Code</span></th>
+              <th class="px-6 py-5 text-center font-medium">Terminal agents<br><span class="text-xs text-slate-500">OpenCode · Claude Code</span></th>
+            </tr>
+          </thead>
+          <tbody class="text-slate-300">
+            <tr class="border-b border-line/60"><td class="px-6 py-4">Full visual GUI 💻</td><td class="px-6 py-4 text-center text-mint">✓</td><td class="px-6 py-4 text-center text-mint">✓</td><td class="px-6 py-4 text-center text-red-400">✗</td></tr>
+            <tr class="border-b border-line/60 bg-white/[.02]"><td class="px-6 py-4">Terminal-grade agent core 🧠</td><td class="px-6 py-4 text-center text-mint">✓</td><td class="px-6 py-4 text-center text-red-400">✗</td><td class="px-6 py-4 text-center text-mint">✓</td></tr>
+            <tr class="border-b border-line/60"><td class="px-6 py-4">Zero telemetry 🔒</td><td class="px-6 py-4 text-center text-mint">✓ verified</td><td class="px-6 py-4 text-center text-red-400">✗</td><td class="px-6 py-4 text-center text-slate-500">varies</td></tr>
+            <tr class="border-b border-line/60 bg-white/[.02]"><td class="px-6 py-4">Visual diffs &amp; revert 🔀</td><td class="px-6 py-4 text-center text-mint">✓</td><td class="px-6 py-4 text-center text-mint">✓</td><td class="px-6 py-4 text-center text-red-400">✗</td></tr>
+            <tr class="border-b border-line/60"><td class="px-6 py-4">Browser in the agent loop 🌐</td><td class="px-6 py-4 text-center text-mint">✓</td><td class="px-6 py-4 text-center text-red-400">✗</td><td class="px-6 py-4 text-center text-red-400">✗</td></tr>
+            <tr class="border-b border-line/60 bg-white/[.02]"><td class="px-6 py-4">Git worktree orchestration 🌿</td><td class="px-6 py-4 text-center text-mint">✓</td><td class="px-6 py-4 text-center text-red-400">✗</td><td class="px-6 py-4 text-center text-slate-500">manual</td></tr>
+            <tr class="border-b border-line/60"><td class="px-6 py-4">75+ providers, OAuth 🔌</td><td class="px-6 py-4 text-center text-mint">✓</td><td class="px-6 py-4 text-center text-slate-500">limited</td><td class="px-6 py-4 text-center text-mint">✓</td></tr>
+            <tr class="bg-white/[.02]"><td class="px-6 py-4">Price 💚</td><td class="px-6 py-4 text-center font-semibold text-mint">Free, MIT</td><td class="px-6 py-4 text-center text-slate-500">freemium</td><td class="px-6 py-4 text-center text-slate-500">varies</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p data-reveal style="--d:120ms" class="mt-6 text-center text-sm text-slate-500">
+      Comparison reflects public product information as of 2026. IDE assistants and terminal agents evolve — so do we. 🤝
+    </p>
+  </div>
+</section>
+
+<!-- ============================ FAQ ============================ -->
+<section id="faq" class="px-4 py-24 md:py-32">
+  <div class="mx-auto max-w-3xl">
+    <div class="mb-14 text-center">
+      <p data-reveal class="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-bee">FAQ ❓</p>
+      <h2 data-reveal style="--d:80ms" class="font-display text-4xl font-bold text-white md:text-5xl">Questions, answered 🙋</h2>
+    </div>
+
+    <div class="space-y-4">
+      <details data-reveal class="faq rounded-3xl border border-line bg-panel px-7">
+        <summary class="flex items-center justify-between gap-4 py-6 font-display text-lg font-semibold text-white">
+          <span>🔒 Is it really telemetry-free?</span><span class="chev text-bee">⌄</span>
+        </summary>
+        <div class="faq-body"><div class="overflow-hidden"><p class="pb-6 leading-relaxed text-slate-400">Yes — and verifiably so. Sharing and auto-update channels are force-disabled in config, the audit is public (<span class="font-mono text-sm">docs/telemetry-audit.md</span>), and the only network traffic is your local core and the provider you configure.</p></div></div>
+      </details>
+
+      <details data-reveal style="--d:60ms" class="faq rounded-3xl border border-line bg-panel px-7">
+        <summary class="flex items-center justify-between gap-4 py-6 font-display text-lg font-semibold text-white">
+          <span>🔌 Which AI providers are supported?</span><span class="chev text-bee">⌄</span>
+        </summary>
+        <div class="faq-body"><div class="overflow-hidden"><p class="pb-6 leading-relaxed text-slate-400">75+ out of the box: Anthropic, OpenAI, Google, xAI, OpenRouter, local Ollama, and any OpenAI-compatible endpoint. OAuth login for Claude Pro / Copilot-style accounts, plain API keys for everything else.</p></div></div>
+      </details>
+
+      <details data-reveal style="--d:120ms" class="faq rounded-3xl border border-line bg-panel px-7">
+        <summary class="flex items-center justify-between gap-4 py-6 font-display text-lg font-semibold text-white">
+          <span>📦 Do I need to install OpenCode separately?</span><span class="chev text-bee">⌄</span>
+        </summary>
+        <div class="faq-body"><div class="overflow-hidden"><p class="pb-6 leading-relaxed text-slate-400">No. The desktop app ships a supervisor that downloads the pinned core, runs it on a random loopback port with a generated password, health-checks it, and tears it down on exit. One installer, zero terminal.</p></div></div>
+      </details>
+
+      <details data-reveal style="--d:180ms" class="faq rounded-3xl border border-line bg-panel px-7">
+        <summary class="flex items-center justify-between gap-4 py-6 font-display text-lg font-semibold text-white">
+          <span>🗝️ Where does my API key live?</span><span class="chev text-bee">⌄</span>
+        </summary>
+        <div class="faq-body"><div class="overflow-hidden"><p class="pb-6 leading-relaxed text-slate-400">In the core's own credential store (<span class="font-mono text-sm">auth.json</span>), written by the core itself. The UI never stores or even sees a second copy.</p></div></div>
+      </details>
+
+      <details data-reveal style="--d:240ms" class="faq rounded-3xl border border-line bg-panel px-7">
+        <summary class="flex items-center justify-between gap-4 py-6 font-display text-lg font-semibold text-white">
+          <span>💻 Which platforms are supported?</span><span class="chev text-bee">⌄</span>
+        </summary>
+        <div class="faq-body"><div class="overflow-hidden"><p class="pb-6 leading-relaxed text-slate-400">Windows 10/11, macOS 12+, and Linux (AppImage / .deb / .rpm). Apple Silicon and Intel both supported.</p></div></div>
+      </details>
+
+      <details data-reveal style="--d:300ms" class="faq rounded-3xl border border-line bg-panel px-7">
+        <summary class="flex items-center justify-between gap-4 py-6 font-display text-lg font-semibold text-white">
+          <span>🆚 How is this different from Cline or Kilo Code?</span><span class="chev text-bee">⌄</span>
+        </summary>
+        <div class="faq-body"><div class="overflow-hidden"><p class="pb-6 leading-relaxed text-slate-400">They are IDE extensions with their own lighter agents and telemetry. BuzzAgent is a standalone desktop app over the full-strength open core — no IDE required, no account, no telemetry, and native extras like worktrees and the browser loop.</p></div></div>
+      </details>
+
+      <details data-reveal style="--d:360ms" class="faq rounded-3xl border border-line bg-panel px-7">
+        <summary class="flex items-center justify-between gap-4 py-6 font-display text-lg font-semibold text-white">
+          <span>💸 What does it cost?</span><span class="chev text-bee">⌄</span>
+        </summary>
+        <div class="faq-body"><div class="overflow-hidden"><p class="pb-6 leading-relaxed text-slate-400">Nothing, ever. MIT licensed — free for personal and commercial use, forever. You pay only your LLM provider directly, at their rates, with no middleman markup.</p></div></div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ DOWNLOAD — ACTION ============================ -->
+<section id="download" class="relative overflow-hidden px-4 py-24 md:py-32">
+  <div class="parallax orb pointer-events-none absolute left-[15%] top-0 h-80 w-80 rounded-full bg-emerald-500/10 blur-3xl" aria-hidden="true" data-depth="0.04"></div>
+  <div class="mx-auto max-w-6xl">
+    <div class="mb-14 text-center">
+      <p data-reveal class="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-bee">Download ⬇️</p>
+      <h2 data-reveal style="--d:80ms" class="font-display text-4xl font-bold text-white md:text-5xl">Free. Local. Yours. 🐝</h2>
+      <p data-reveal style="--d:160ms" class="mx-auto mt-5 max-w-xl text-lg text-slate-400">
+        No account. No credit card. No telemetry. Uninstall is one drag to the trash — that's the whole exit cost.
+      </p>
+    </div>
+
+    <div class="grid gap-6 md:grid-cols-3">
+      <div data-reveal class="lift flex flex-col items-center rounded-[2rem] border border-line bg-panel p-10 text-center">
+        <div class="flex h-20 w-20 items-center justify-center rounded-3xl bg-[#0e2233] text-5xl">🪟</div>
+        <h3 class="font-display mt-5 text-xl font-semibold text-white">Windows</h3>
+        <p class="mt-1 text-sm text-slate-500">Windows 10/11 · x64 · Installer &amp; portable</p>
+        <a href="https://github.com/buzzband/buzzagent/releases/latest" target="_blank" rel="noopener"
+           class="mt-6 w-full rounded-full bg-bee px-6 py-3.5 font-semibold text-ink transition hover:brightness-110">Download .exe</a>
+        <span class="mt-3 font-mono text-xs text-slate-600">.exe · .msi</span>
+      </div>
+
+      <div data-reveal style="--d:120ms" class="lift relative flex flex-col items-center rounded-[2rem] border border-bee/40 bg-panel p-10 text-center glow">
+        <span class="absolute -top-3 rounded-full bg-bee px-4 py-1 text-xs font-bold text-ink">⭐ Most popular</span>
+        <div class="flex h-20 w-20 items-center justify-center rounded-3xl bg-[#1c1c22] text-5xl">🍎</div>
+        <h3 class="font-display mt-5 text-xl font-semibold text-white">macOS</h3>
+        <p class="mt-1 text-sm text-slate-500">macOS 12+ · Apple Silicon &amp; Intel</p>
+        <a href="https://github.com/buzzband/buzzagent/releases/latest" target="_blank" rel="noopener"
+           class="mt-6 w-full rounded-full bg-bee px-6 py-3.5 font-semibold text-ink transition hover:brightness-110">Download .dmg</a>
+        <span class="mt-3 font-mono text-xs text-slate-600">arm64 · x64</span>
+      </div>
+
+      <div data-reveal style="--d:240ms" class="lift flex flex-col items-center rounded-[2rem] border border-line bg-panel p-10 text-center">
+        <div class="flex h-20 w-20 items-center justify-center rounded-3xl bg-[#10251a] text-5xl">🐧</div>
+        <h3 class="font-display mt-5 text-xl font-semibold text-white">Linux</h3>
+        <p class="mt-1 text-sm text-slate-500">AppImage &amp; .deb · X11 / Wayland</p>
+        <a href="https://github.com/buzzband/buzzagent/releases/latest" target="_blank" rel="noopener"
+           class="mt-6 w-full rounded-full bg-bee px-6 py-3.5 font-semibold text-ink transition hover:brightness-110">Download .AppImage</a>
+        <span class="mt-3 font-mono text-xs text-slate-600">.AppImage · .deb</span>
+      </div>
+    </div>
+
+    <div data-reveal style="--d:320ms" class="mx-auto mt-10 max-w-3xl rounded-3xl border border-line bg-panel/60 p-7 text-center">
+      <p class="text-sm text-slate-400">🛠️ Prefer to build from source?</p>
+      <pre class="mt-4 overflow-x-auto rounded-2xl bg-ink px-5 py-4 text-left font-mono text-sm text-slate-300"><code>git clone https://github.com/buzzband/buzzagent.git
+cd buzzagent && npm install && npm run setup:core
+npm run dev   <span class="text-slate-600"># 🚀 desktop app + supervised core</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FINAL CTA BANNER ============================ -->
+<section class="px-4 pb-24 md:pb-32">
+  <div data-reveal class="relative mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] border border-bee/30 bg-gradient-to-br from-bee/15 via-panel to-panel p-12 text-center md:p-20">
+    <div class="pointer-events-none absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-bee/20 blur-3xl" aria-hidden="true"></div>
+    <h2 class="font-display relative text-4xl font-bold leading-tight text-white md:text-6xl">
+      Your agent is already coding.<br><span class="grad-text">Start watching it work.</span> 🐝
+    </h2>
+    <p class="relative mx-auto mt-6 max-w-xl text-lg text-slate-300/90">
+      One download, one provider key, one task. If it doesn't click, you've lost sixty seconds and nothing else.
+    </p>
+    <div class="relative mt-10 flex flex-wrap items-center justify-center gap-4">
+      <a href="#download" class="glow rounded-full bg-bee px-10 py-4 text-lg font-semibold text-ink transition hover:brightness-110">Get BuzzAgent free ⬇️</a>
+      <a href="https://github.com/buzzband/buzzagent" target="_blank" rel="noopener" class="rounded-full border border-line bg-panel/70 px-8 py-4 font-semibold text-slate-200 transition hover:border-bee/50 hover:text-white">Read the source ★</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FEEDBACK ============================ -->
+<section id="feedback" class="px-4 pb-24 md:pb-32">
+  <div class="mx-auto max-w-5xl overflow-hidden rounded-[2.5rem] border border-line bg-panel">
+    <div class="grid md:grid-cols-2">
+      <div class="relative hidden md:block">
+        <img src="https://images.unsplash.com/photo-1519389950473-47ba0277781c?q=80&w=1000&auto=format&fit=crop"
+             alt="Team collaborating" class="h-full w-full object-cover" loading="lazy">
+        <div class="absolute inset-0 bg-gradient-to-r from-transparent to-panel"></div>
+        <div class="absolute bottom-8 left-8 rounded-2xl border border-white/10 bg-ink/70 px-5 py-4 backdrop-blur">
+          <p class="text-sm text-slate-300">💬 "Finally, an agent UI that shows everything and hides nothing."</p>
+          <p class="mt-2 text-xs text-slate-500">— beta tester 🐝</p>
+        </div>
+      </div>
+
+      <div class="p-10 md:p-14">
+        <h2 data-reveal class="font-display text-3xl font-bold text-white">Talk to us 💌</h2>
+        <p data-reveal style="--d:80ms" class="mt-3 leading-relaxed text-slate-400">
+          Bugs, ideas, partnership — everything lands in a human's inbox. No trackers in this form either. 🕊️
+        </p>
+
+        <form id="feedback-form" data-reveal style="--d:160ms" class="mt-8 space-y-4">
+          <div class="grid gap-4 sm:grid-cols-2">
+            <input required type="text" name="name" placeholder="Your name 🙋"
+                   class="w-full rounded-2xl border border-line bg-ink px-5 py-3.5 text-sm text-white placeholder:text-slate-600 focus:border-bee/60 focus:outline-none">
+            <input required type="email" name="email" placeholder="Email 📬"
+                   class="w-full rounded-2xl border border-line bg-ink px-5 py-3.5 text-sm text-white placeholder:text-slate-600 focus:border-bee/60 focus:outline-none">
+          </div>
+          <select name="topic" class="w-full rounded-2xl border border-line bg-ink px-5 py-3.5 text-sm text-slate-300 focus:border-bee/60 focus:outline-none">
+            <option>💡 Feature idea</option>
+            <option>🐞 Bug report</option>
+            <option>🤝 Partnership</option>
+            <option>💬 Just saying hi</option>
+          </select>
+          <textarea required name="message" rows="4" placeholder="Tell us everything… ✍️"
+                    class="w-full resize-none rounded-2xl border border-line bg-ink px-5 py-3.5 text-sm text-white placeholder:text-slate-600 focus:border-bee/60 focus:outline-none"></textarea>
+          <button type="submit"
+                  class="glow w-full rounded-full bg-bee px-8 py-4 font-semibold text-ink transition hover:brightness-110">
+            Send message 🚀
+          </button>
+          <p id="form-note" class="hidden rounded-2xl border border-mint/30 bg-mint/10 px-5 py-3 text-center text-sm text-mint">✅ Opening your email client — thank you! 🐝</p>
+          <p class="text-center text-xs text-slate-600">This form opens your own mail client — nothing is sent anywhere else.</p>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FOOTER ============================ -->
+<footer class="border-t border-line/70 px-4 py-14">
+  <div class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-8 md:flex-row">
+    <div class="flex items-center gap-2 text-lg text-white"><span class="text-2xl">🐝</span> BuzzAgent</div>
+    <div class="flex flex-wrap items-center justify-center gap-6 text-sm text-slate-500">
+      <a href="#why" class="transition hover:text-white">Why</a>
+      <a href="#features" class="transition hover:text-white">Features</a>
+      <a href="#download" class="transition hover:text-white">Download</a>
+      <a href="#faq" class="transition hover:text-white">FAQ</a>
+      <a href="https://github.com/buzzband/buzzagent" target="_blank" rel="noopener" class="transition hover:text-white">GitHub ★</a>
+      <a href="./README.html" class="transition hover:text-white">Docs 📚</a>
+    </div>
+    <p class="text-sm text-slate-600">MIT © 2026 BuzzAgent · made with 🐝 and ☕</p>
+  </div>
+</footer>
+
+<!-- ============================ STICKY CTA ============================ -->
+<div id="sticky-cta" class="fixed inset-x-0 bottom-0 z-40 px-4 pb-4">
+  <div class="mx-auto flex max-w-3xl items-center justify-between gap-4 rounded-2xl border border-line bg-panel/95 px-5 py-3 shadow-2xl backdrop-blur-xl">
+    <p class="hidden text-sm text-slate-300 sm:block">🐝 Free, MIT, zero telemetry — ready in sixty seconds.</p>
+    <a href="#download" class="w-full rounded-full bg-bee px-6 py-2.5 text-center text-sm font-semibold text-ink transition hover:brightness-110 sm:w-auto">Download free ⬇️</a>
+  </div>
+</div>
+
+<!-- ============================ JS: Framer-style interactions ============================ -->
+<script>
+  // ---- scroll reveal ----
+  const io = new IntersectionObserver(
+    (entries) => entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("is-visible"); io.unobserve(e.target); } }),
+    { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
+  );
+  document.querySelectorAll("[data-reveal]").forEach((el) => io.observe(el));
+
+  // ---- scroll progress bar ----
+  const progress = document.getElementById("progress");
+  addEventListener("scroll", () => {
+    const h = document.documentElement;
+    const p = h.scrollTop / (h.scrollHeight - h.clientHeight || 1);
+    progress.style.transform = `scaleX(${p})`;
+  }, { passive: true });
+
+  // ---- navbar elevation ----
+  const nav = document.getElementById("nav");
+  addEventListener("scroll", () => {
+    nav.classList.toggle("shadow-2xl", scrollY > 24);
+    nav.classList.toggle("bg-panel/90", scrollY > 24);
+  }, { passive: true });
+
+  // ---- orb parallax (mouse) ----
+  const orbs = document.querySelectorAll(".parallax");
+  addEventListener("mousemove", (e) => {
+    const x = (e.clientX / innerWidth - 0.5), y = (e.clientY / innerHeight - 0.5);
+    orbs.forEach((el) => {
+      const d = parseFloat(el.dataset.depth || "0.04");
+      el.style.transform = `translate3d(${x * d * 1000}px, ${y * d * 1000}px, 0)`;
+    });
+  }, { passive: true });
+
+  // ---- count-up stats ----
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const counters = document.querySelectorAll("[data-count]");
+  const cio = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (!e.isIntersecting) return;
+      cio.unobserve(e.target);
+      const el = e.target, target = parseInt(el.dataset.count, 10), suffix = el.dataset.suffix || "";
+      if (reduced || target === 0) { el.textContent = target + suffix; return; }
+      const t0 = performance.now(), dur = 1200;
+      const tick = (t) => {
+        const k = Math.min((t - t0) / dur, 1), eased = 1 - Math.pow(1 - k, 3);
+        el.textContent = Math.round(target * eased) + suffix;
+        if (k < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  }, { threshold: 0.4 });
+  counters.forEach((el) => cio.observe(el));
+
+  // ---- sticky CTA: show mid-page, hide over download + page bottom ----
+  const sticky = document.getElementById("sticky-cta");
+  const download = document.getElementById("download");
+  const footer = document.querySelector("footer");
+  addEventListener("scroll", () => {
+    sticky.classList.toggle("show", scrollY > 600 && !sticky.classList.contains("hide"));
+  }, { passive: true });
+  const hideIo = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      sticky.classList.toggle("hide", e.isIntersecting);
+      if (!e.isIntersecting && scrollY > 600) sticky.classList.add("show");
+    });
+  }, { threshold: 0.08 });
+  hideIo.observe(download);
+  hideIo.observe(footer);
+
+  // ---- graceful video fallback: if the stream fails, keep the gradient ----
+  const vid = document.getElementById("bgvid");
+  vid.addEventListener("error", () => { vid.style.display = "none"; }, true);
+  vid.querySelector("source")?.addEventListener("error", () => { vid.style.display = "none"; });
+
+  // ---- feedback form: mailto compose (zero backend, zero telemetry) ----
+  const form = document.getElementById("feedback-form");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const subject = `[BuzzAgent] ${f.get("topic")} — ${f.get("name")}`;
+    const body = `${f.get("message")}\n\n— ${f.get("name")} (${f.get("email")})`;
+    location.href = `mailto:hello@buzzagent.dev?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    document.getElementById("form-note").classList.remove("hidden");
+    setTimeout(() => form.reset(), 1500);
+  });
+</script>
+</body>
+</html>

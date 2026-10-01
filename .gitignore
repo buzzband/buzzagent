@@ -3,6 +3,10 @@ dist/
 dist-electron/
 src-tauri/target/
 src-tauri/gen/
+src-tauri/bin/
+bin/
+*.tar.gz
+*.zip
 build/
 *.local
 /.pnpm-debug.log*
@@ -20,3 +24,9 @@ build/
 instruction.txt
 electron/test-main.js
 electron/test-simple.js
+
+# Built installers (attached to GitHub Releases by CI, never committed)
+releases/
+
+# Local tool state
+.freebuff/

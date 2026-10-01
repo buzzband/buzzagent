@@ -4,13 +4,15 @@
     "useDefineForClassFields": false,
     "lib": ["ES2021", "DOM", "dom.iterable"],
     "module": "ESNext",
-    "moduleResolution": "Node",
+    // "bundler" matches how Vite actually resolves, and is required for
+    // packages that ship subpath exports (e.g. @shikijs/langs/go).
+    "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "esModuleInterop": true,
-    "types": ["vitest/globals", "@testing-library/jest-dom"],
+    "types": ["vitest/globals"],
     "skipLibCheck": true,
     "skipDefaultLibCheck": true,
     "forceConsistentCasingInFileNames": true,

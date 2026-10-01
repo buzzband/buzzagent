@@ -3,28 +3,44 @@
 ## Project overview
 
 BuzzAgent is an open-source desktop workbench for AI coding agents
-(Tauri/Electron + React + Rust). Zero telemetry is a hard requirement.
+(Tauri + React). The agent runtime is **not** in this repo: it is a local
+`opencode serve` process (MIT, [anomalyco/opencode](https://github.com/anomalyco/opencode)).
+BuzzAgent is the GUI client. Zero telemetry is a hard requirement.
+
+Read `README.md` (concept) and `PLAN.md` (milestones) before changing
+architecture.
 
 ## Non-negotiable rules
 
-1. **No telemetry. Ever.** Never add analytics, tracking, crash reporting or any
-   network call other than: the user-configured LLM provider and user-added MCP
-   servers. If a dependency phones home, remove the dependency.
-2. **No terminal wrapper for the agent.** The visual layer talks to the agent
-   core via IPC commands and the `agent-event` event stream — not by scraping a
-   terminal.
-3. **No temp config files.** Pass agent configuration through IPC arguments and
-   environment variables only.
-4. **Modular architecture.** Each component (agent core, browser, MCP, git,
-   stores) must remain replaceable. Keep modules decoupled.
+1. **No telemetry. Ever.** Never add analytics, tracking, crash reporting or
+   any network call other than: the local OpenCode core, the user-configured
+   LLM provider, and user-added MCP servers. If a dependency phones home,
+   remove the dependency.
+2. **No in-house agent loop.** Do not reintroduce `agent.rs`, a custom tool
+   runner, or a parallel LLM client. The core owns the tool loop, sessions,
+   diffs, permissions, MCP, and providers.
+3. **Frontend talks to the core directly** over HTTP and SSE
+   (`@opencode-ai/sdk`). Rust does not proxy session/message/event traffic.
+   Rust only supervises the sidecar and exposes native extras (browser,
+   git worktrees).
+4. **No temp config files for the core.** Pass configuration through the SDK
+   `createOpencode({ config })` argument and environment variables
+   (`OPENCODE_SERVER_PASSWORD`, port). Forced sidecar config must include
+   `share: "disabled"` and must not default `small_model` to OpenCode Zen.
+5. **Core is the single owner of state.** Do not keep a second Zustand copy
+   of auth, session history, or diffs that can diverge from the server.
+6. **No Electron.** Tauri is the only desktop shell.
+7. **Modular extras.** Browser and worktree modules must stay replaceable
+   and must not leak into the core client layer.
 
 ## Stack
 
-- Frontend: React 18, TypeScript (strict), Zustand, xterm.js, Vite
-- Desktop: Tauri 2 (primary), Electron (fallback shell)
-- Agent core: Rust (`src-tauri/src/agent.rs`) — OpenAI-compatible chat,
-  tool loop, staged writes
-- Tests: Vitest (frontend), built-in `cargo test` (Rust)
+- Frontend: React 18, TypeScript (strict), Zustand, Vite
+- Desktop: Tauri 2
+- Agent core: OpenCode sidecar (`opencode serve`), pinned version, client
+  generated from that version's OpenAPI spec (`GET /doc`)
+- Native extras: Rust (`src-tauri/src/browser.rs`, later worktrees)
+- Tests: Vitest (frontend), `cargo test` (Rust)
 
 ## Commands
 
@@ -41,17 +57,19 @@ Verify all of the above before finishing any change.
 ## Conventions
 
 - Code comments in English; README is bilingual (English + Russian).
-- Backend events: `AgentEvent` in `src-tauri/src/agent.rs` is serialized with
-  `serde(tag = "type", snake_case)` and must stay in sync with the `AgentEvent`
-  interface in `src/types.ts`. If you change one, change both.
-- File tools accept relative paths only; `..` traversal and absolute paths are
-  rejected in `arg_rel_path`. Never relax this.
-- Writes go through the staged-diff flow (`PendingWrite` → accept/reject);
-  never write files directly from the agent loop.
-- Hunk indices restart at 0 per file in `parse_git_diff` — the UI relies on it.
+- Do not invent event types. Render `Message` / `Part[]` and `/event`
+  payloads as defined by the pinned OpenCode spec.
+- File edits go through the core. Do not add a Tauri `write_file` that
+  bypasses the core's permission and diff flow.
+- `shell_exec` (and any destructive core tool) requires an explicit user
+  permission response. Do not auto-approve.
 
 ## Danger zones
 
-- `shell_exec` runs with the user's privileges. Do not add auto-approval.
-- MCP servers execute arbitrary local commands from their config — that is the
-  user's choice; do not expand env inheritance beyond what is configured.
+- `opencode serve` binds `127.0.0.1` and can run shell + write files.
+  Always set `OPENCODE_SERVER_PASSWORD`, use a random port, and do not
+  widen `--cors`.
+- Sidecar version drift: bump the pin and regenerate the SDK together.
+- Telemetry audit (PLAN.md Milestone 0) is a gate. Do not claim “zero
+  telemetry” in user-facing copy until that audit is done and the forced
+  config is in the supervisor.

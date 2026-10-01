@@ -1,21 +1,37 @@
-import "@testing-library/jest-dom";
-import { vi } from "vitest";
+/**
+ * Test environment setup.
+ *
+ * jsdom does not implement `matchMedia`, which theme resolution relies on.
+ * Providing a minimal stand-in is closer to reality than making production code
+ * defensive about an API every real browser has.
+ */
 
-// Simulate a plain-browser environment where the Tauri backend is NOT available.
-// The ipc layer must degrade gracefully (web-only mode) when invoke is unavailable.
-interface TauriInternalsWindow extends Window {
-  __TAURI_INTERNALS__?: unknown;
+if (!window.matchMedia) {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
 }
-(window as TauriInternalsWindow).__TAURI_INTERNALS__ = undefined;
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(() =>
-    Promise.reject(new TypeError("Backend not available in test environment"))
-  ),
-}));
+// Some components measure DOM boxes; jsdom lacks the observer API.
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
 
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
-}));
-
-window.HTMLElement.prototype.scrollIntoView = vi.fn();
+// Used by the code-block copy button.
+if (!navigator.clipboard) {
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText: async () => undefined },
+    configurable: true,
+  });
+}

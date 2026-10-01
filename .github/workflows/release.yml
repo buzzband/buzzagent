@@ -64,11 +64,15 @@ jobs:
         shell: bash
         run: ./scripts/setup-core.sh src-tauri/bin
 
+      - name: Build frontend
+        run: npm run build:web
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: .
           tagName: ${{ github.ref_name }}
           releaseName: "BuzzAgent ${{ github.ref_name }}"
           releaseBody: |

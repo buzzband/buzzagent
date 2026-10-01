@@ -56,7 +56,7 @@ Verify all of the above before finishing any change.
 
 ## Conventions
 
-- Code comments in English. Shared docs (README.md, README.html,
+- Code comments in English. Shared docs (README.md,
   README/README.md hub, AGENTS.md, PLAN.md) are English-only; per-language
   files (README/README.<lang>.md) are written entirely in their own language
   — no mixing. Language self-names as link labels are the only exception.

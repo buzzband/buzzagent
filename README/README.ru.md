@@ -3,7 +3,7 @@
 🌐 Сайт проекта: **https://b4zz.com/agent**
 
 **README на других языках** — [индекс переводов](./README.md) · English
-[README](../README.md) · [README.html](../README.html)
+[README](../README.md)
 
 Open-source визуальная рабочая среда для AI-кодинг-агентов. Ядро агента —
 [OpenCode](https://github.com/anomalyco/opencode) (MIT); BuzzAgent — GUI-клиент

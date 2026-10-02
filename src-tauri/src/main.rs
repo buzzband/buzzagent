@@ -1102,6 +1102,10 @@ fn open_external(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
+        // `creation_flags` lives on `CommandExt`; without this import the
+        // Windows build fails to compile (the block is cfg'd out everywhere
+        // else, so only a Windows build can catch it).
+        use std::os::windows::process::CommandExt;
         std::process::Command::new("cmd")
             .args(["/C", "start", "", &path])
             .creation_flags(0x08000000) // CREATE_NO_WINDOW

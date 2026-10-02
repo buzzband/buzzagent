@@ -22,13 +22,13 @@ jobs:
       matrix:
         include:
           - os: macos-latest # Apple Silicon
-            args: "--target aarch64-apple-darwin"
+            target: aarch64-apple-darwin
           - os: macos-latest # Intel
-            args: "--target x86_64-apple-darwin"
+            target: x86_64-apple-darwin
           - os: windows-latest
-            args: ""
+            target: ""
           - os: ubuntu-22.04
-            args: ""
+            target: ""
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -55,19 +55,22 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm libfuse2
 
       - name: Install npm dependencies
         run: npm ci
 
       - name: Download pinned OpenCode core
         shell: bash
-        run: ./scripts/setup-core.sh src-tauri/bin
+        # Pass the build target: an Apple Silicon runner building the Intel
+        # bundle must stage the x86_64 sidecar, not just its own.
+        run: ./scripts/setup-core.sh src-tauri/bin ${{ matrix.target }}
 
       - name: Build frontend
         run: npm run build:web
 
-      - name: Build and release
+      - name: Build and release (macOS, Windows)
+        if: matrix.os != 'ubuntu-22.04'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -86,4 +89,27 @@ jobs:
             - **Linux**: download the `.AppImage` (chmod +x) or the `.deb`/`.rpm`
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.args }}
+          args: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+
+      # Linux bundles are produced by our own script instead of tauri-action:
+      # the Tauri AppImage bundler runs linuxdeploy, whose patchelf pass
+      # corrupts the Bun-built `opencode` sidecar (it segfaults afterwards and
+      # the bundler then dies with `failed to run linuxdeploy` when ldd fails
+      # on the corrupted binary). scripts/build-linux-release.sh builds the
+      # AppImage with plain appimagetool, leaving the sidecar byte-identical.
+      - name: Build Linux artifacts (deb, rpm, AppImage)
+        if: matrix.os == 'ubuntu-22.04'
+        run: ./scripts/build-linux-release.sh
+
+      - name: Upload Linux artifacts to the GitHub release
+        if: matrix.os == 'ubuntu-22.04'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "BuzzAgent ${{ github.ref_name }}"
+          files: |
+            releases/BuzzAgent_*_amd64.AppImage
+            releases/BuzzAgent_*_amd64.deb
+            releases/buzzagent-*-1.x86_64.rpm
+            releases/SHA256SUMS.txt
+          fail_on_unmatched_files: true

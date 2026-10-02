@@ -44,17 +44,45 @@ jobs:
       - name: Frontend Build
         run: npm run build:web
 
+      # Tauri's build script fails hard when `bundle > externalBin` has no
+      # `bin/opencode-<target-triple>` staged, so this must run before cargo.
+      - name: Stage pinned OpenCode core
+        run: ./scripts/setup-core.sh src-tauri/bin
+
       - name: Rust Cargo Check & Test
         run: |
           cd src-tauri
           cargo check
           cargo test
 
-      - name: Download pinned OpenCode binary for integration test
+      - name: Stage OpenCode binary for integration test
         run: |
           mkdir -p /tmp/kilo/oc
-          curl -sL -o /tmp/kilo/oc/oc.tar.gz "https://github.com/anomalyco/opencode/releases/download/v1.18.30/opencode-linux-x64.tar.gz"
-          cd /tmp/kilo/oc && tar xzf oc.tar.gz
+          cp src-tauri/bin/opencode /tmp/kilo/oc/opencode
 
       - name: Integration Test (Core + Mock Provider)
         run: ./scripts/test-integration.sh
+
+  # Code behind `#[cfg(target_os = ...)]` is not type-checked on Linux, so a
+  # Windows- or macOS-only API mistake can reach a release tag unchallenged.
+  platform-check:
+    name: Rust Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Stage pinned OpenCode core
+        shell: bash
+        run: ./scripts/setup-core.sh src-tauri/bin
+
+      - name: Cargo Check
+        run: cargo check --manifest-path src-tauri/Cargo.toml

@@ -1,87 +1,121 @@
 #!/usr/bin/env bash
-set -e
+# Stage the pinned OpenCode core for Tauri's `bundle > externalBin`.
+#
+# Tauri's build script requires every sidecar to be named
+# `<name>-<rust-target-triple>`, so a job that cross-builds — an Apple Silicon
+# runner producing the Intel macOS bundle, for example — must stage the binary
+# for its *build target*, not for the host. Extra targets are passed as
+# trailing arguments:
+#
+#   ./scripts/setup-core.sh src-tauri/bin
+#   ./scripts/setup-core.sh src-tauri/bin x86_64-apple-darwin
+#
+# The host target also gets the plain `opencode` name used by `npm run dev`.
+set -euo pipefail
 
 VERSION="1.18.30"
 TARGET_DIR="${1:-bin}"
-mkdir -p "$TARGET_DIR"
+shift || true
+
+asset_for() {
+  case "$1" in
+    x86_64-unknown-linux-gnu) echo "opencode-linux-x64.tar.gz" ;;
+    aarch64-unknown-linux-gnu) echo "opencode-linux-arm64.tar.gz" ;;
+    x86_64-apple-darwin) echo "opencode-darwin-x64.zip" ;;
+    aarch64-apple-darwin) echo "opencode-darwin-arm64.zip" ;;
+    x86_64-pc-windows-msvc) echo "opencode-windows-x64.zip" ;;
+    *) echo "" ;;
+  esac
+}
+
+exe_for() {
+  case "$1" in
+    *windows*) echo ".exe" ;;
+    *) echo "" ;;
+  esac
+}
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
-
 case "$OS" in
-  linux)
-    case "$ARCH" in
-      x86_64) ASSET="opencode-linux-x64.tar.gz" ;;
-      aarch64|arm64) ASSET="opencode-linux-arm64.tar.gz" ;;
-      *) echo "Unsupported Linux architecture: $ARCH"; exit 1 ;;
-    esac
-    ;;
-  darwin)
-    case "$ARCH" in
-      x86_64) ASSET="opencode-darwin-x64.zip" ;;
-      arm64) ASSET="opencode-darwin-arm64.zip" ;;
-      *) echo "Unsupported macOS architecture: $ARCH"; exit 1 ;;
-    esac
-    ;;
-  msys*|mingw*|cygwin*)
-    ASSET="opencode-windows-x64.zip"
+  linux | darwin) ;;
+  msys* | mingw* | cygwin*)
+    OS="windows"
+    ARCH="x86_64"
     ;;
   *)
-    echo "Unsupported OS: $OS"; exit 1 ;;
+    echo "Unsupported OS: $OS"
+    exit 1
+    ;;
 esac
 
-URL="https://github.com/anomalyco/opencode/releases/download/v${VERSION}/${ASSET}"
-echo "Downloading OpenCode v${VERSION} (${ASSET}) from GitHub Releases..."
+case "$OS:$ARCH" in
+  linux:x86_64) HOST_TRIPLE="x86_64-unknown-linux-gnu" ;;
+  linux:aarch64 | linux:arm64) HOST_TRIPLE="aarch64-unknown-linux-gnu" ;;
+  darwin:x86_64) HOST_TRIPLE="x86_64-apple-darwin" ;;
+  darwin:arm64) HOST_TRIPLE="aarch64-apple-darwin" ;;
+  windows:x86_64) HOST_TRIPLE="x86_64-pc-windows-msvc" ;;
+  *)
+    echo "Unsupported architecture: $ARCH"
+    exit 1
+    ;;
+esac
 
+# Host first (it also provides the plain `opencode` binary), then every extra
+# target the caller asked for, without duplicates.
+TRIPLES=("$HOST_TRIPLE")
+for want in "$@"; do
+  [ -z "$want" ] && continue
+  if [ -z "$(asset_for "$want")" ]; then
+    echo "Unsupported Rust target triple: $want"
+    exit 1
+  fi
+  for have in "${TRIPLES[@]}"; do
+    if [ "$have" = "$want" ]; then
+      continue 2
+    fi
+  done
+  TRIPLES+=("$want")
+done
+
+mkdir -p "$TARGET_DIR"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-curl -sSL "$URL" -o "$TMP_DIR/$ASSET"
+for triple in "${TRIPLES[@]}"; do
+  ASSET="$(asset_for "$triple")"
+  SRC="$TMP_DIR/$triple"
+  mkdir -p "$SRC"
 
-if [[ "$ASSET" == *.tar.gz ]]; then
-  tar -xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR"
-elif [[ "$ASSET" == *.zip ]]; then
-  unzip -q "$TMP_DIR/$ASSET" -d "$TMP_DIR"
-fi
+  echo "Downloading OpenCode v${VERSION} (${ASSET}) from GitHub Releases..."
+  curl -fsSL \
+    "https://github.com/anomalyco/opencode/releases/download/v${VERSION}/${ASSET}" \
+    -o "$TMP_DIR/$ASSET"
 
-if [ -f "$TMP_DIR/opencode" ]; then
-  mv "$TMP_DIR/opencode" "$TARGET_DIR/opencode"
-  chmod +x "$TARGET_DIR/opencode"
-elif [ -f "$TMP_DIR/opencode.exe" ]; then
-  mv "$TMP_DIR/opencode.exe" "$TARGET_DIR/opencode.exe"
-fi
-
-# Tauri `externalBin` expects the binary named with the Rust target triple
-# (e.g. opencode-x86_64-unknown-linux-gnu) so each platform bundle picks the
-# right one. Stage a triple-named copy next to the plain one; on Windows the
-# triple binary also needs the .exe suffix.
-TRIPLE=""
-case "$OS" in
-  linux)
-    case "$ARCH" in
-      x86_64) TRIPLE="x86_64-unknown-linux-gnu" ;;
-      aarch64|arm64) TRIPLE="aarch64-unknown-linux-gnu" ;;
-    esac
-    ;;
-  darwin)
-    case "$ARCH" in
-      x86_64) TRIPLE="x86_64-apple-darwin" ;;
-      arm64) TRIPLE="aarch64-apple-darwin" ;;
-    esac
-    ;;
-  msys*|mingw*|cygwin*)
-    TRIPLE="x86_64-pc-windows-msvc"
-    ;;
-esac
-if [ -n "$TRIPLE" ]; then
-  if [ -f "$TARGET_DIR/opencode.exe" ]; then
-    cp "$TARGET_DIR/opencode.exe" "$TARGET_DIR/opencode-${TRIPLE}.exe"
+  if [[ "$ASSET" == *.tar.gz ]]; then
+    tar -xzf "$TMP_DIR/$ASSET" -C "$SRC"
   else
-    cp "$TARGET_DIR/opencode" "$TARGET_DIR/opencode-${TRIPLE}"
-    chmod +x "$TARGET_DIR/opencode-${TRIPLE}"
+    unzip -q "$TMP_DIR/$ASSET" -d "$SRC"
   fi
-  echo "Staged sidecar as opencode-${TRIPLE} for Tauri bundling"
-fi
 
-echo "OpenCode v${VERSION} core installed to $TARGET_DIR/opencode"
-"$TARGET_DIR/opencode" --version || true
+  if [ -f "$SRC/opencode.exe" ]; then
+    BIN="$SRC/opencode.exe"
+  elif [ -f "$SRC/opencode" ]; then
+    BIN="$SRC/opencode"
+  else
+    echo "Archive ${ASSET} did not contain an opencode binary"
+    exit 1
+  fi
+
+  EXT="$(exe_for "$triple")"
+  cp "$BIN" "$TARGET_DIR/opencode-${triple}${EXT}"
+  chmod +x "$TARGET_DIR/opencode-${triple}${EXT}"
+  echo "Staged sidecar as opencode-${triple}${EXT} for Tauri bundling"
+
+  if [ "$triple" = "$HOST_TRIPLE" ]; then
+    cp "$BIN" "$TARGET_DIR/opencode${EXT}"
+    chmod +x "$TARGET_DIR/opencode${EXT}"
+    echo "OpenCode v${VERSION} core installed to $TARGET_DIR/opencode${EXT}"
+    "$TARGET_DIR/opencode${EXT}" --version || true
+  fi
+done

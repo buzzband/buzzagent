@@ -40,11 +40,15 @@ RPM_ROOT="${STAGING}/rpm"
 rm -rf "${RPM_ROOT}/payload"
 mkdir -p "${RPM_ROOT}/payload"
 cp -r "${DEB_DIR}/data/." "${RPM_ROOT}/payload/"
-SPEC="${RPM_ROOT}/rpmbuild/SPECS/buzzagent.spec"
-[[ -f "$SPEC" ]] || { echo "missing $SPEC (created once by hand)" >&2; exit 1; }
+TOP="${RPM_ROOT}/rpmbuild"
+mkdir -p "$TOP"/{BUILD,RPMS,SOURCES,SPECS,SRPMS,rpmdb}
+SPEC="$TOP/SPECS/buzzagent.spec"
+# spec source of truth is tracked in the repo (scripts/rpm/buzzagent.spec)
+cp scripts/rpm/buzzagent.spec "$SPEC"
 sed -i "s/^Version:        .*/Version:        ${VERSION}/" "$SPEC"
-TOP="$(cd "${RPM_ROOT}/rpmbuild" && pwd)"
+TOP="$(cd "$TOP" && pwd)"
 rpmbuild --dbpath "$TOP/rpmdb" --define "_topdir $TOP" \
+  --define "payload_dir $(cd "${RPM_ROOT}/payload" && pwd)" \
   --define "_rpmdir $RPM_ROOT" -bb "$SPEC" > /dev/null
 RPM_FILE="${RPM_ROOT}/x86_64/buzzagent-${VERSION}-1.x86_64.rpm"
 [[ -f "$RPM_FILE" ]] || { echo "rpm build did not produce a file" >&2; exit 1; }
@@ -75,7 +79,9 @@ export PATH="$HERE/usr/bin:$PATH"
 exec "$HERE/usr/bin/buzzagent" "$@"
 SH
 chmod +x "$APPDIR/AppRun"
-(cd "$TOOLS" && ARCH=x86_64 ./appimagetool --runtime-file runtime-x86_64 \
+# APPIMAGE_EXTRACT_AND_RUN lets appimagetool work on runners without libfuse2.
+(cd "$TOOLS" && ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool \
+  --runtime-file runtime-x86_64 \
   --comp zstd "BuzzAgent.AppDir" "BuzzAgent_${VERSION}_amd64.AppImage") > /dev/null
 APPIMAGE_FILE="$TOOLS/BuzzAgent_${VERSION}_amd64.AppImage"
 [[ -f "$APPIMAGE_FILE" ]] || { echo "appimagetool produced no file" >&2; exit 1; }

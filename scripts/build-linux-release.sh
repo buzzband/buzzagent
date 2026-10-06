@@ -11,6 +11,12 @@
 #     exports APPDIR (the bundler's $APPDIR Exec value fails desktop-file
 #     validation).
 #
+# Prerequisites (Debian 13 / trixie note): the tauri-cli bundler pkg-config-
+# probes ayatana-appindicator3-0.1 / appindicator3-0.1 and panics with
+# "Can't detect any appindicator library" when neither .pc file exists —
+# install libayatana-appindicator3-dev (libappindicator3-dev no longer exists
+# in trixie). Also: libwebkit2gtk-4.1-dev, librsvg2-dev, rpm, patchelf.
+#
 # Usage: scripts/build-linux-release.sh [--skip-build]
 # Artifacts land in ./releases/ together with SHA256SUMS.txt.
 
@@ -80,10 +86,14 @@ exec "$HERE/usr/bin/buzzagent" "$@"
 SH
 chmod +x "$APPDIR/AppRun"
 # APPIMAGE_EXTRACT_AND_RUN lets appimagetool work on runners without libfuse2.
-(cd "$TOOLS" && ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool \
-  --runtime-file runtime-x86_64 \
-  --comp zstd "BuzzAgent.AppDir" "BuzzAgent_${VERSION}_amd64.AppImage") > /dev/null
+# Every tool argument must be an absolute path: under APPIMAGE_EXTRACT_AND_RUN
+# the type-2 runtime re-execs itself from a scratch directory, so relative
+# paths like "BuzzAgent.AppDir" stop resolving ("no such file or directory").
 APPIMAGE_FILE="$TOOLS/BuzzAgent_${VERSION}_amd64.AppImage"
+rm -f "$APPIMAGE_FILE"
+ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool" \
+  --runtime-file "$TOOLS/runtime-x86_64" \
+  --comp zstd "$APPDIR" "$APPIMAGE_FILE"
 [[ -f "$APPIMAGE_FILE" ]] || { echo "appimagetool produced no file" >&2; exit 1; }
 
 # ------------------------------------------------------------- publish

@@ -31,8 +31,7 @@ export function EmptyChat() {
     language,
     providers,
     busy,
-    setSettingsOpen,
-    setSettingsTab,
+    openSettingsAt,
     setPaletteOpen,
   } = useApp(
     useShallow((s) => ({
@@ -40,8 +39,7 @@ export function EmptyChat() {
       language: s.language,
       providers: s.providers,
       busy: s.busy,
-      setSettingsOpen: s.setSettingsOpen,
-      setSettingsTab: s.setSettingsTab,
+      openSettingsAt: s.openSettingsAt,
       setPaletteOpen: s.setPaletteOpen,
     }))
   );
@@ -89,8 +87,7 @@ export function EmptyChat() {
                 <button
                   type="button"
                   onClick={() => {
-                    setSettingsTab("providers");
-                    setSettingsOpen(true);
+                    openSettingsAt("providers");
                   }}
                   className="ml-1 inline-flex items-center gap-1 rounded-md bg-[var(--accent)] px-2 py-0.5 text-2xs font-medium text-[var(--accent-fg)] hover:bg-[var(--accent-hover)]"
                 >

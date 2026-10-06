@@ -26,7 +26,7 @@ export interface ProviderDraft {
   name: string;
   baseUrl: string;
   apiKey?: string;
-  models: Record<string, { name?: string; reasoning?: boolean }>;
+  models: Record<string, { name?: string; reasoning?: boolean; level?: string }>;
 }
 
 interface Props {
@@ -41,6 +41,8 @@ interface ModelItem {
   name: string;
   selected: boolean;
   reasoning: boolean;
+  /** Reasoning-effort level carried through to the provider config. */
+  level?: string;
 }
 
 interface ProbeResult {
@@ -136,6 +138,7 @@ export function CustomProviderDialog({ open, onClose, initial }: Props) {
           name: def.name ?? friendlyName(id),
           selected: true,
           reasoning: def.reasoning === true,
+          level: def.level,
         }))
       );
       setProbeResult(null);
@@ -264,6 +267,34 @@ export function CustomProviderDialog({ open, onClose, initial }: Props) {
     setModels((prev) => prev.map((m) => ({ ...m, selected })));
   };
 
+  /** One click: flip reasoning for every listed model. */
+  const setAllReasoning = (on: boolean) => {
+    setModels((prev) =>
+      prev.map((m) => ({
+        ...m,
+        reasoning: on,
+        // Turning everything on without a chosen level keeps any level the
+        // user already set per model; "off" clears levels with the flag.
+        level: on ? m.level : undefined,
+      }))
+    );
+  };
+
+  /** One click: pick the reasoning-effort level for every selected model. */
+  const setAllLevels = (level: string) => {
+    setModels((prev) =>
+      prev.map((m) =>
+        m.selected
+          ? {
+              ...m,
+              reasoning: level === "off" ? false : true,
+              level: level === "off" ? undefined : level,
+            }
+          : m
+      )
+    );
+  };
+
   const selectedCount = models.filter((m) => m.selected).length;
 
   const filteredModels = models.filter(
@@ -309,6 +340,7 @@ export function CustomProviderDialog({ open, onClose, initial }: Props) {
           id: m.id,
           name: m.name.trim() || m.id,
           reasoning: m.reasoning,
+          level: m.reasoning ? (m.level ?? null) : null,
         })),
       });
 
@@ -429,6 +461,11 @@ export function CustomProviderDialog({ open, onClose, initial }: Props) {
                 <Key size={11} />
                 API Key (Optional for local Ollama / LM Studio)
               </label>
+              {initial && !apiKey && (
+                <p className="mt-0.5 text-2xs text-[var(--fg-muted)]">
+                  The saved key is stored securely and kept unless you type a new one.
+                </p>
+              )}
               <div className="mt-1 flex gap-2">
                 <input
                   type="password"
@@ -491,7 +528,7 @@ export function CustomProviderDialog({ open, onClose, initial }: Props) {
                 </div>
 
                 {models.length > 0 && (
-                  <div className="flex items-center gap-2 text-2xs">
+                  <div className="flex flex-wrap items-center gap-2 text-2xs">
                     <button
                       type="button"
                       onClick={() => selectAll(true)}
@@ -507,6 +544,41 @@ export function CustomProviderDialog({ open, onClose, initial }: Props) {
                     >
                       Deselect All
                     </button>
+                    <span className="text-[var(--border-strong)]">·</span>
+                    <span className="text-[var(--fg-muted)]">Reasoning for all:</span>
+                    <button
+                      type="button"
+                      onClick={() => setAllReasoning(true)}
+                      title="Enable reasoning on every model in one click"
+                      className="flex items-center gap-1 rounded border border-[var(--accent)]/40 bg-[var(--accent-subtle)] px-1.5 py-0.5 font-medium text-[var(--accent)]"
+                    >
+                      <Brain size={10} />
+                      On
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAllReasoning(false)}
+                      title="Disable reasoning on every model in one click"
+                      className="rounded border border-[var(--border-subtle)] px-1.5 py-0.5 text-[var(--fg-muted)] hover:text-[var(--fg-primary)]"
+                    >
+                      Off
+                    </button>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) setAllLevels(e.target.value);
+                        e.currentTarget.value = "";
+                      }}
+                      title="Set the reasoning-effort level for every selected model in one click"
+                      className="rounded border border-[var(--border-default)] bg-[var(--bg-base)] px-1 py-0.5 text-2xs text-[var(--fg-secondary)] focus:outline-none"
+                    >
+                      <option value="">Set level for all…</option>
+                      {["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((lv) => (
+                        <option key={lv} value={lv}>
+                          {lv === "off" ? "off (default)" : lv}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
               </div>
@@ -592,6 +664,29 @@ export function CustomProviderDialog({ open, onClose, initial }: Props) {
                         <Brain size={12} />
                         <span>{m.reasoning ? "Reasoning On" : "Reasoning Off"}</span>
                       </button>
+
+                      {/* Reasoning level (only meaningful when reasoning is on) */}
+                      {m.reasoning && (
+                        <select
+                          value={m.level ?? ""}
+                          onChange={(e) =>
+                            setModels((prev) =>
+                              prev.map((mm) =>
+                                mm.id === m.id ? { ...mm, level: e.target.value || undefined } : mm
+                              )
+                            )
+                          }
+                          title="Reasoning effort level for this model"
+                          className="shrink-0 rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-1 py-1 text-2xs text-[var(--fg-secondary)] focus:outline-none"
+                        >
+                          <option value="">level…</option>
+                          {["minimal", "low", "medium", "high", "xhigh", "max"].map((lv) => (
+                            <option key={lv} value={lv}>
+                              {lv}
+                            </option>
+                          ))}
+                        </select>
+                      )}
 
                       {/* Remove item */}
                       <button

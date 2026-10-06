@@ -94,13 +94,12 @@ export function ErrorCard({
   onClose?: () => void;
   compact?: boolean;
 }) {
-  const { language, errorDetailOpen, toggleErrorDetail, setSettingsOpen, setSettingsTab } = useApp(
+  const { language, errorDetailOpen, toggleErrorDetail, openSettingsAt } = useApp(
     useShallow((s) => ({
       language: s.language,
       errorDetailOpen: s.errorDetailOpen,
       toggleErrorDetail: s.toggleErrorDetail,
-      setSettingsOpen: s.setSettingsOpen,
-      setSettingsTab: s.setSettingsTab,
+      openSettingsAt: s.openSettingsAt,
     }))
   );
   const { copied, copy } = useCopy();
@@ -162,8 +161,7 @@ export function ErrorCard({
                 type="button"
                 onClick={() => {
                   if (action.key === "providers") {
-                    setSettingsTab("providers");
-                    setSettingsOpen(true);
+                    openSettingsAt("providers");
                   } else {
                     // StatusBar owns the CoreLogModal and listens for this.
                     window.dispatchEvent(new CustomEvent("buzzagent:open-core-log"));
@@ -206,12 +204,39 @@ export function ErrorCard({
  * as the last item of the scrolled conversation (so the scroll-follow logic
  * naturally brings it into view); with an empty chat it shows under the empty
  * state. Never docked at the bottom of the window.
+ *
+ * Suppression: failures that already render inline — a failed message's own
+ * ErrorCard, or the failing tool's card — carry the originating messageID/
+ * callID. The banner hides for those (the user saw the same error twice:
+ * once in the conversation and again above the composer). Store-level failures
+ * with no inline carrier (connection drop, core crash) still show here.
  */
 export function ChatErrorBanner() {
-  const { lastError, clearError } = useApp(
-    useShallow((s) => ({ lastError: s.lastError, clearError: s.clearError }))
+  const { lastError, clearError, messages } = useApp(
+    useShallow((s) => ({
+      lastError: s.lastError,
+      clearError: s.clearError,
+      messages: s.messages,
+    }))
   );
   if (!lastError) return null;
+  if (lastError.messageID || lastError.callID) {
+    const renderedInline = messages.some((m) => {
+      if (lastError.messageID && m.info.id === lastError.messageID) {
+        if (m.info.error) return true;
+        if (
+          lastError.callID &&
+          m.parts.some(
+            (p) => p.type === "tool" && p.callID === lastError.callID && p.state?.status === "error"
+          )
+        ) {
+          return true;
+        }
+      }
+      return false;
+    });
+    if (renderedInline) return null;
+  }
   return (
     <div className="px-4 py-2">
       <ErrorCard error={lastError} onClose={clearError} />

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";import {
   ChevronDown,
   MessageSquarePlus,
@@ -13,7 +12,6 @@ import { useShallow } from "zustand/react/shallow";
 import { useApp } from "../../store/app";
 import { t } from "../../lib/i18n";
 import type { Session } from "../../core/types";
-import { CapabilitiesSections } from "./CapabilitiesSections";
 
 function projectName(dir: string): string {
   return dir.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || dir;
@@ -330,18 +328,11 @@ export function ProjectsList() {
                           onClick={async () => {
                             if (dir === projectDir) {
                               await deleteSession(session.id);
-                            } else {
-                              // Deleting a session of another project would mean a
-                              // core switch mid-flight; keep it honest and skip.
-                              try {
-                                await invoke("core_write_project_config", {
-                                  projectDir: dir,
-                                  patch: {},
-                                });
-                              } catch {
-                                // Not fatal: cross-project delete needs that project open.
-                              }
                             }
+                            // Deleting a session of another project would mean a
+                            // core switch mid-flight; keep it honest and skip. (It
+                            // also used to write an empty project config into that
+                            // directory — creating junk files in unrelated projects.)
                           }}
                           title="Delete session"
                           aria-label={`Delete ${session.title || "session"}`}
@@ -359,11 +350,8 @@ export function ProjectsList() {
         })}
       </div>
 
-      {/* Skills + MCP servers: the presets layer lives at the bottom of the
-          Projects window so both capabilities are reachable in one glance.
-          (These sections were written for the old sidebar and silently dropped
-          during the dockable-window migration — this restores them.) */}
-      <CapabilitiesSections />
+      {/* Skills and MCP are their own dockable panels now (SkillsPanel /
+          McpPanel) — they no longer live at the bottom of Projects. */}
     </div>
   );
 }

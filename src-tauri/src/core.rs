@@ -112,6 +112,12 @@ const LOG_TAIL_LIMIT: usize = 200;
 ///   * object ∩ object  -> recurse;
 ///   * `null` anywhere  -> delete that key (the UI's reset signal);
 ///   * anything else    -> replace.
+/// Default system prompt for the built-in `plan` mode (batch-2 request: the
+/// planning agent should keep its plan in PLAN.md). The Modes settings tab
+/// offers the same text as placeholder/button (DEFAULT_PLAN_PROMPT in
+/// SettingsPanel.tsx) — keep the two in sync.
+const DEFAULT_PLAN_PROMPT: &str = "You are in plan mode. Research the task in the project without making any changes. Create a plan for all tasks and save it as PLAN.md in the project root (create the file or update it), then present a short summary and wait for the user's confirmation before switching to build mode.";
+
 fn merge_settings(dst: &mut serde_json::Value, patch: &serde_json::Value) {
     use serde_json::Value;
     match (dst, patch) {
@@ -251,6 +257,12 @@ impl CoreSupervisor {
 
         let dirs = CoreDirs::prepare(&self.data_dir)?;
         dirs.write_forced_config()?;
+        // Move any legacy plain-text provider keys out of the config file and
+        // into the credential store before the core reads either.
+        self.scrub_provider_keys()?;
+        // First run: give the built-in plan mode its PLAN.md prompt (only
+        // while the config has no agent overrides at all).
+        self.seed_mode_prompts()?;
 
         let mut cmd = Command::new(&exe);
         cmd.arg("serve")
@@ -471,6 +483,111 @@ impl CoreSupervisor {
         self.data_dir.join("core/config/opencode/opencode.json")
     }
 
+    /// Path of the sandboxed credential store the core reads at startup.
+    fn sandbox_auth_path(&self) -> PathBuf {
+        self.data_dir.join("core/data/opencode/auth.json")
+    }
+
+    /// Persist a provider API key into the sandboxed `auth.json` — the same
+    /// store `opencode auth login` writes and the core reads for every
+    /// provider (precedence: `options.apiKey`, then auth entry, then env).
+    /// Merges; never clobbers other providers' credentials.
+    fn store_provider_key(&self, provider_id: &str, key: &str) -> Result<(), String> {
+        if key.trim().is_empty() {
+            return Ok(());
+        }
+        let path = self.sandbox_auth_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let mut value: serde_json::Value = if path.is_file() {
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_default())
+                .unwrap_or_else(|_| serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+        if !value.is_object() {
+            value = serde_json::json!({});
+        }
+        value[provider_id] = serde_json::json!({ "type": "api", "key": key });
+        let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+        std::fs::write(&path, body).map_err(|e| format!("Cannot write sandbox auth: {}", e))
+    }
+
+    /// One-way, idempotent migration: any plain-text `options.apiKey` in the
+    /// sandbox config is moved into `auth.json` and removed from the config.
+    /// `{env:...}` placeholders and empty values are left alone. Runs on every
+    /// core start, so existing installs are cleaned on the next launch.
+    /// First-run seed for the built-in `plan` mode: the user asked for the
+    /// planning agent to keep its task plan in PLAN.md. Applied only while the
+    /// config has no `agent` overrides at all — user edits (including a
+    /// deliberate deletion of the seed through the Modes settings) always win.
+    fn seed_mode_prompts(&self) -> Result<(), String> {
+        let config_path = self.user_config_path();
+        if !config_path.is_file() {
+            return Ok(());
+        }
+        let mut value: serde_json::Value =
+            match serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap_or_default())
+            {
+                Ok(v) => v,
+                Err(_) => return Ok(()), // Hand-edited invalid JSON: leave it for the user.
+            };
+        if value.get("agent").is_some() {
+            return Ok(());
+        }
+        value["agent"] = serde_json::json!({
+            "plan": {
+                "mode": "primary",
+                "description": "Plan mode — plans first and keeps the task plan in PLAN.md",
+                "prompt": DEFAULT_PLAN_PROMPT,
+            }
+        });
+        let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+        std::fs::write(&config_path, body)
+            .map_err(|e| format!("Failed to write settings: {}", e))?;
+        Ok(())
+    }
+
+    fn scrub_provider_keys(&self) -> Result<(), String> {
+        let config_path = self.user_config_path();
+        if !config_path.is_file() {
+            return Ok(());
+        }
+        let mut value: serde_json::Value =
+            match serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap_or_default())
+            {
+                Ok(v) => v,
+                Err(_) => return Ok(()), // Hand-edited invalid JSON: leave it for the user.
+            };
+        let Some(providers) = value.get_mut("provider").and_then(|p| p.as_object_mut()) else {
+            return Ok(());
+        };
+        let mut moved: Vec<(String, String)> = Vec::new();
+        for (id, def) in providers.iter_mut() {
+            let Some(opts) = def.get_mut("options").and_then(|o| o.as_object_mut()) else {
+                continue;
+            };
+            let Some(key) = opts.get("apiKey").and_then(|k| k.as_str()) else {
+                continue;
+            };
+            if key.trim().is_empty() || key.starts_with("{env:") {
+                continue;
+            }
+            moved.push((id.clone(), key.to_string()));
+            opts.remove("apiKey");
+        }
+        if moved.is_empty() {
+            return Ok(());
+        }
+        for (id, key) in moved {
+            self.store_provider_key(&id, &key)?;
+        }
+        let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+        std::fs::write(&config_path, body)
+            .map_err(|e| format!("Cannot rewrite core config: {}", e))
+    }
+
     /// Replace the entire on-disk config (Raw JSON editor).
     ///
     /// The merged `write_settings` cannot express key *deletions* across the
@@ -571,6 +688,12 @@ impl CoreSupervisor {
     ///
     /// Persists to disk so it survives restarts, and sends PATCH /config to the live
     /// core if currently running so it takes effect immediately without restart.
+    ///
+    /// The API key is stored in the sandboxed `auth.json` — the core's native
+    /// credential store — and NEVER in `opencode.json`: the core's built-in
+    /// `opencode-customize` skill routinely copies provider config into project
+    /// files, and a key sitting in the config would leak into the user's
+    /// repository with it. The core resolves the key from auth.json itself.
     pub async fn add_custom_provider(
         &self,
         id: &str,
@@ -597,6 +720,26 @@ impl CoreSupervisor {
 
         if !value.get("provider").is_some() {
             value["provider"] = serde_json::json!({});
+        }
+
+        // New key → store it. No key passed (edit without retyping) → keep the
+        // auth.json entry from the previous save. Either way a legacy plain key
+        // sitting in THIS provider's config options is migrated out now.
+        if let Some(key) = api_key.map(str::trim).filter(|k| !k.is_empty()) {
+            self.store_provider_key(id, key)?;
+        }
+        if let Some(opts) = value
+            .get_mut("provider")
+            .and_then(|p| p.get_mut(id))
+            .and_then(|d| d.get_mut("options"))
+            .and_then(|o| o.as_object_mut())
+        {
+            if let Some(key) = opts.get("apiKey").and_then(|k| k.as_str()) {
+                if !key.trim().is_empty() && !key.starts_with("{env:") {
+                    self.store_provider_key(id, key)?;
+                }
+            }
+            opts.remove("apiKey");
         }
 
         let mut models_map = serde_json::Map::new();
@@ -635,9 +778,11 @@ impl CoreSupervisor {
         provider_obj[id] = serde_json::json!({
             "npm": "@ai-sdk/openai-compatible",
             "name": name,
+            // No `apiKey` here on purpose: the core resolves it from auth.json
+            // (options.apiKey > auth entry > env). Keeping the file key-free
+            // means an agent-copied config can never leak credentials.
             "options": {
-                "baseURL": base_url,
-                "apiKey": api_key.unwrap_or_default()
+                "baseURL": base_url
             },
             "models": serde_json::Value::Object(models_map)
         });
@@ -1208,6 +1353,154 @@ mod tests {
         // ...except the keys BuzzAgent owns.
         assert_eq!(saved["share"], "disabled");
         assert_eq!(saved["experimental"]["openTelemetry"], false);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn provider_api_keys_live_in_auth_store_not_config() {
+        // The core's built-in customize skill copies provider config into
+        // project files; a key in the config would leak into the repository
+        // with it. Keys must land in auth.json instead.
+        let tmp = std::env::temp_dir().join(format!("bz-keys-{}", uuid::Uuid::new_v4()));
+        let sup = CoreSupervisor::new(tmp.clone());
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+
+        rt.block_on(sup.add_custom_provider(
+            "secret",
+            "Secret",
+            "http://127.0.0.1:1/v1",
+            Some("sk-live-abc123"),
+            vec![CustomModelEntry {
+                id: "m1".into(),
+                name: None,
+                reasoning: None,
+                level: None,
+            }],
+        ))
+        .unwrap();
+
+        let config = sup.read_settings().unwrap();
+        assert_eq!(config["provider"]["secret"]["options"]["baseURL"], "http://127.0.0.1:1/v1");
+        assert!(
+            config["provider"]["secret"]["options"].get("apiKey").is_none(),
+            "config must not contain the key"
+        );
+        let auth: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(tmp.join("core/data/opencode/auth.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(auth["secret"]["type"], "api");
+        assert_eq!(auth["secret"]["key"], "sk-live-abc123");
+
+        // Editing without retyping the key must keep the stored one.
+        rt.block_on(sup.add_custom_provider(
+            "secret",
+            "Secret",
+            "http://127.0.0.1:2/v1",
+            None,
+            vec![CustomModelEntry {
+                id: "m1".into(),
+                name: None,
+                reasoning: None,
+                level: None,
+            }],
+        ))
+        .unwrap();
+        let auth: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(tmp.join("core/data/opencode/auth.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(auth["secret"]["key"], "sk-live-abc123");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn scrub_moves_legacy_keys_from_config_into_auth_store() {
+        let tmp = std::env::temp_dir().join(format!("bz-scrub-{}", uuid::Uuid::new_v4()));
+        let sup = CoreSupervisor::new(tmp.clone());
+        let config_dir = tmp.join("core/config/opencode");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("opencode.json"),
+            r#"{
+  "$schema": "https://opencode.ai/config.json",
+  "share": "disabled",
+  "autoupdate": false,
+  "provider": {
+    "legacy": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://127.0.0.1:9/v1", "apiKey": "sk-legacy-1" },
+      "models": { "m": { "name": "M" } }
+    },
+    "already-clean": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://127.0.0.1:9/v1" },
+      "models": { "m": { "name": "M" } }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        sup.scrub_provider_keys().unwrap();
+
+        let config = sup.read_settings().unwrap();
+        assert!(
+            config["provider"]["legacy"]["options"]
+                .get("apiKey")
+                .is_none(),
+            "plain key must leave the config"
+        );
+        assert_eq!(
+            config["provider"]["legacy"]["options"]["baseURL"],
+            "http://127.0.0.1:9/v1"
+        );
+        let auth: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(tmp.join("core/data/opencode/auth.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(auth["legacy"]["key"], "sk-legacy-1");
+
+        // Idempotent: a second run changes nothing and does not error.
+        sup.scrub_provider_keys().unwrap();
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn seeds_default_plan_prompt_only_when_no_agent_overrides_exist() {
+        let tmp = std::env::temp_dir().join(format!("bz-seed-{}", uuid::Uuid::new_v4()));
+        let sup = CoreSupervisor::new(tmp.clone());
+        let config_dir = tmp.join("core/config/opencode");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("opencode.json"),
+            r#"{ "$schema": "https://opencode.ai/config.json", "share": "disabled", "autoupdate": false }"#,
+        )
+        .unwrap();
+
+        sup.seed_mode_prompts().unwrap();
+
+        let config = sup.read_settings().unwrap();
+        assert_eq!(
+            config["agent"]["plan"]["prompt"],
+            serde_json::json!(DEFAULT_PLAN_PROMPT),
+            "first run must seed the PLAN.md plan-mode prompt"
+        );
+
+        // A user-provided override wins; the seed never comes back over it.
+        sup.write_settings(serde_json::json!({
+            "agent": { "plan": { "prompt": "custom plan prompt" } }
+        }))
+        .await
+        .unwrap();
+        sup.seed_mode_prompts().unwrap();
+        let config = sup.read_settings().unwrap();
+        assert_eq!(config["agent"]["plan"]["prompt"], "custom plan prompt");
 
         std::fs::remove_dir_all(&tmp).ok();
     }

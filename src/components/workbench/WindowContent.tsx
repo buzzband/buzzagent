@@ -7,6 +7,8 @@ import { ProjectsList } from "../sidebar/SessionList";
 import { DiffPanel } from "../diffs/DiffPanel";
 import { WorktreePanel } from "../worktrees/WorktreePanel";
 import { SkillsPanel } from "../skills/SkillsPanel";
+import { McpPanel } from "../mcp/McpPanel";
+import { MusicPanel } from "../music/MusicPanel";
 import { EditorWindow } from "../editor/EditorWindow";
 
 /** Render the component for a given docked window. */
@@ -28,6 +30,10 @@ export function WindowContent({ window }: { window: WindowId }) {
       return <WorktreePanel />;
     case "skills":
       return <SkillsPanel />;
+    case "mcp":
+      return <McpPanel />;
+    case "music":
+      return <MusicPanel />;
     case "editor":
       return <EditorWindow />;
     default:

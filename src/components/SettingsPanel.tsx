@@ -96,6 +96,17 @@ type PermissionChoice = (typeof PERMISSION_CHOICES)[number];
 
 const LOG_LEVELS = ["DEBUG", "INFO", "WARN", "ERROR"] as const;
 
+/**
+ * Default prompt offered for the built-in `plan` mode (batch-2 request: the
+ * planning agent should keep its plan in PLAN.md). The core seeds the same
+ * text on first run (DEFAULT_PLAN_PROMPT in core.rs) — keep the two in sync.
+ */
+const DEFAULT_PLAN_PROMPT =
+  "You are in plan mode. Research the task in the project without making any changes. " +
+  "Create a plan for all tasks and save it as PLAN.md in the project root (create the file " +
+  "or update it), then present a short summary and wait for the user's confirmation before " +
+  "switching to build mode.";
+
 type Settings = Record<string, unknown>;
 
 function asString(value: unknown): string {
@@ -1127,8 +1138,11 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                             <button
                               type="button"
                               onClick={() => {
-                                // Deep merge: null deletes this mode only.
-                                update("agent", { [name]: null });
+                                // Deep merge: null deletes this mode only —
+                                // the other modes must stay in the local form
+                                // state too, or the editor loses them (the
+                                // file itself was never at risk).
+                                update("agent", { ...record(settings.agent), [name]: null });
                               }}
                               className="rounded-md border border-[var(--border-subtle)] px-2.5 py-1 text-2xs text-[var(--fg-muted)] hover:border-[var(--danger)]/40 hover:text-[var(--danger)]"
                             >
@@ -1193,7 +1207,11 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                           onChange={(e) =>
                             setModeForm((prev) => ({ ...prev, prompt: e.target.value }))
                           }
-                          placeholder="You are a strict code reviewer…"
+                          placeholder={
+                            modeForm.name === "plan"
+                              ? DEFAULT_PLAN_PROMPT
+                              : "You are a strict code reviewer…"
+                          }
                           className="mt-1 w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--fg-primary)] focus:border-[var(--accent)] focus:outline-none"
                         />
                       </label>
@@ -1207,6 +1225,17 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                             ? t(language, "common.save")
                             : t(language, "modes.new")}
                         </button>
+                        {modeForm.name === "plan" && !modeForm.prompt.trim() && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setModeForm((prev) => ({ ...prev, prompt: DEFAULT_PLAN_PROMPT }))
+                            }
+                            className="rounded-md border border-[var(--border-default)] px-2.5 py-1 text-2xs text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+                          >
+                            Use default plan prompt (writes PLAN.md)
+                          </button>
+                        )}
                         {modeForm.name && (
                           <button
                             type="button"

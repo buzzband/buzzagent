@@ -84,7 +84,26 @@ fn find_chromium_executable() -> Option<PathBuf> {
             }
         }
     }
+    // Well-known locations that are not on every PATH (snap shims on Ubuntu).
+    #[cfg(target_os = "linux")]
+    for path in ["/snap/bin/chromium", "/snap/bin/chromium-browser"] {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return Some(p);
+        }
+    }
     None
+}
+
+/// Explain Firefox's presence (and why it cannot help) in discovery reports.
+fn firefox_note() -> String {
+    match which::which("firefox").or_else(|_| which::which("firefox-esr")) {
+        Ok(path) => format!(
+            " Firefox was found ({}), but it does not implement the Chrome DevTools Protocol, so it cannot drive this panel.",
+            path.display()
+        ),
+        Err(_) => String::new(),
+    }
 }
 
 /// Human-facing discovery result for the panel's error message.
@@ -99,10 +118,81 @@ pub fn chromium_discovery_report() -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "no Chromium-family browser found (tried: {}, …). Firefox will not work — this panel speaks the Chrome DevTools Protocol. Install Chrome/Chromium/Edge/Brave, or switch the panel to Attach mode and point it at a running Chrome with --remote-debugging-port.",
-                names
+                "no Chromium-family browser found (tried: {}, …).{} Install Chrome, Chromium, Edge or Brave — the Install Chromium button does it for you — or switch the panel to Attach mode and point it at a running Chrome with --remote-debugging-port.",
+                names,
+                firefox_note()
             )
         }
+    }
+}
+
+/// Manual install command for the first distro package manager we recognize
+/// (shown in the panel and offered as a copyable fallback).
+pub fn install_command_hint() -> String {
+    for (probe, command) in [
+        ("apt-get", "sudo apt-get install -y chromium"),
+        ("dnf", "sudo dnf install -y chromium"),
+        ("pacman", "sudo pacman -S --needed chromium"),
+        ("zypper", "sudo zypper install chromium"),
+    ] {
+        if which::which(probe).is_ok() {
+            return command.to_string();
+        }
+    }
+    "flatpak install -y flathub org.chromium.Chromium".to_string()
+}
+
+/// One-click install of an open-source Chromium through the distro package
+/// manager so the managed (CDP) panel can drive it. pkexec raises the system
+/// authentication prompt; the command is fixed (no user input), so it is safe
+/// by construction. Flatpak's Chromium is deliberately not auto-installed:
+/// its binary cannot be driven over CDP from outside the sandbox.
+pub async fn install_chromium() -> Result<String, String> {
+    if let Some(path) = find_chromium_executable() {
+        return Ok(format!(
+            "A Chromium-family browser is already installed: {}",
+            path.display()
+        ));
+    }
+    let (probe, args): (&str, Vec<&str>) = if which::which("apt-get").is_ok() {
+        ("apt-get", vec!["install", "-y", "chromium"])
+    } else if which::which("dnf").is_ok() {
+        ("dnf", vec!["install", "-y", "chromium"])
+    } else if which::which("pacman").is_ok() {
+        ("pacman", vec!["-S", "--needed", "--noconfirm", "chromium"])
+    } else if which::which("zypper").is_ok() {
+        ("zypper", vec!["--non-interactive", "install", "chromium"])
+    } else {
+        return Err(format!(
+            "No supported package manager found (apt/dnf/pacman/zypper). Install Chromium manually: {}",
+            install_command_hint()
+        ));
+    };
+    let status = tokio::process::Command::new("pkexec")
+        .arg(probe)
+        .args(&args)
+        .status()
+        .await
+        .map_err(|e| {
+            format!(
+                "Could not run pkexec ({}). Install manually: {}",
+                e,
+                install_command_hint()
+            )
+        })?;
+    if !status.success() {
+        return Err(format!(
+            "Install did not complete (exit {}). You can run it manually: {}",
+            status.code().unwrap_or(-1),
+            install_command_hint()
+        ));
+    }
+    match find_chromium_executable() {
+        Some(path) => Ok(format!("Chromium installed: {}", path.display())),
+        None => Err(format!(
+            "Install finished, but no Chromium executable is on PATH — restart BuzzAgent so PATH changes are picked up. Manual check: {}",
+            install_command_hint()
+        )),
     }
 }
 
@@ -353,6 +443,11 @@ mod tests {
         let cfg = BrowserConfig::default();
         assert!(matches!(cfg.mode, BrowserMode::Managed));
         assert_eq!(cfg.width, 1280);
+    }
+
+    #[test]
+    fn install_hint_names_chromium() {
+        assert!(install_command_hint().contains("chromium"));
     }
 
     #[test]

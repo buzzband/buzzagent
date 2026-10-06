@@ -4,6 +4,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useApp } from "../../store/app";
 import {
   ArrowRight,
+  Copy,
+  Download,
   Globe,
   Loader2,
   MousePointer,
@@ -14,6 +16,7 @@ import {
   Terminal,
   Type,
 } from "lucide-react";
+import { copyText } from "../ErrorBoundary";
 
 interface ConsoleEntry {
   level: string;
@@ -49,6 +52,10 @@ export function BrowserPanel() {
   const [cdpUrl, setCdpUrl] = useState("http://127.0.0.1:9222");
   /** One-time discovery report for the empty state (which browsers did we see). */
   const [discovery, setDiscovery] = useState<string | null>(null);
+  /** One-click open-source Chromium install (distro package manager + pkexec). */
+  const [installing, setInstalling] = useState(false);
+  const [installMsg, setInstallMsg] = useState<string | null>(null);
+  const [installHint, setInstallHint] = useState<string | null>(null);
 
   // Interaction controls
   const [clickSelector, setClickSelector] = useState("");
@@ -153,9 +160,34 @@ export function BrowserPanel() {
     // Fetch once so the empty state can explain what is missing *before* the
     // first failed navigate: which Chromium-family browser was found (or not).
     invoke<string>("browser_discovery_report")
-      .then(setDiscovery)
+      .then((report) => {
+        setDiscovery(report);
+        // No browser: prepare the manual-install fallback command too.
+        if (!report.startsWith("found:")) {
+          invoke<string>("browser_install_hint")
+            .then(setInstallHint)
+            .catch(() => setInstallHint(null));
+        }
+      })
       .catch(() => setDiscovery(null));
   }, []);
+
+  const handleInstall = async () => {
+    setInstalling(true);
+    setInstallMsg(null);
+    try {
+      const msg = await invoke<string>("browser_install_chromium");
+      setInstallMsg(msg);
+      // Re-run discovery so the empty state flips to "browser in use".
+      await invoke<string>("browser_discovery_report")
+        .then(setDiscovery)
+        .catch(() => undefined);
+    } catch (e) {
+      setInstallMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInstalling(false);
+    }
+  };
 
   // Explorer right-click "Open in browser panel": open the file straight off
   // disk. The event arrives right after the browser tab is opened, so store
@@ -293,9 +325,18 @@ export function BrowserPanel() {
       {error && (
         <div
           role="alert"
-          className="mx-4 mt-2 rounded-md border border-[var(--danger)]/40 bg-[var(--danger-subtle)] px-3 py-2 text-xs text-[var(--danger)]"
+          className="mx-4 mt-2 flex items-start gap-2 rounded-md border border-[var(--danger)]/40 bg-[var(--danger-subtle)] px-3 py-2 text-xs text-[var(--danger)]"
         >
-          {error}
+          <span className="selectable min-w-0 flex-1 break-words">{error}</span>
+          <button
+            type="button"
+            onClick={() => void copyText(error)}
+            title="Copy error"
+            aria-label="Copy error"
+            className="shrink-0 rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--fg-primary)]"
+          >
+            <Copy size={12} />
+          </button>
         </div>
       )}
 
@@ -337,10 +378,44 @@ export function BrowserPanel() {
                       : "bg-[var(--warning-subtle,rgba(234,179,8,0.12))] text-[var(--warning,#eab308)]"
                   }`}
                 >
-                  {discovery.startsWith("found:") ? (
-                    <>Browser in use: <code className="font-mono">{discovery.replace("found: ", "")}</code></>
-                  ) : (
-                    discovery
+                  <span className="selectable block">
+                    {discovery.startsWith("found:") ? (
+                      <>Browser in use: <code className="font-mono">{discovery.replace("found: ", "")}</code></>
+                    ) : (
+                      discovery
+                    )}
+                  </span>
+                  {!discovery.startsWith("found:") && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleInstall()}
+                        disabled={installing}
+                        title="Installs the open-source Chromium through your distro's package manager (the OS asks for your password)"
+                        className="flex items-center gap-1.5 rounded-md bg-[var(--accent)] px-2.5 py-1 font-medium text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                      >
+                        {installing ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Download size={12} />
+                        )}
+                        Install Chromium (open source)
+                      </button>
+                      {installHint && (
+                        <button
+                          type="button"
+                          onClick={() => void copyText(installHint)}
+                          title="Copy the manual install command"
+                          className="flex items-center gap-1 rounded-md border border-[var(--border-default)] px-2 py-1 transition-colors hover:text-[var(--fg-primary)]"
+                        >
+                          <Copy size={11} />
+                          Copy command
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {installMsg && (
+                    <p className="selectable mt-2 break-words">{installMsg}</p>
                   )}
                 </div>
               )}
@@ -487,7 +562,7 @@ export function BrowserPanel() {
                 {logs.map((log, idx) => (
                   <div
                     key={idx}
-                    className={`rounded px-1.5 py-0.5 leading-snug ${
+                    className={`selectable rounded px-1.5 py-0.5 leading-snug ${
                       log.level === "error"
                         ? "bg-[var(--danger-subtle)] text-[var(--danger)]"
                         : log.level === "warn"

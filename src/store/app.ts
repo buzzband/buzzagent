@@ -22,8 +22,7 @@ import {
   stepZoomIndex,
 } from "../lib/zoom";
 import {
-  AREA_SIZE_MAX,
-  AREA_SIZE_MIN,
+  clampAreaSize,
   DEFAULT_AREA_SIZES,
   DEFAULT_LAYOUT,
   loadAreaSizes,
@@ -272,7 +271,16 @@ interface AppState {
 
   answerPermission: (id: string, reply: PermissionReply) => Promise<void>;
   /** Record a failure of any origin so the UI can show it in full. */
-  reportError: (error: unknown, context?: { sessionID?: string; providerID?: string; modelID?: string }) => void;
+  reportError: (
+    error: unknown,
+    context?: {
+      sessionID?: string;
+      providerID?: string;
+      modelID?: string;
+      messageID?: string;
+      callID?: string;
+    }
+  ) => void;
   clearError: () => void;
   toggleErrorDetail: () => void;
 
@@ -318,6 +326,8 @@ interface AppState {
   setSkillShown: (projectDir: string, skill: string, shown: boolean) => void;
   skillShown: (projectDir: string | null, skill: string) => boolean;
   setSettingsTab: (tab: string) => void;
+  /** Open settings directly on `tab` (gear buttons that deep-link a pane). */
+  openSettingsAt: (tab: string) => void;
   toggleModelReasoning: () => Promise<void>;
   /** Set the reasoning effort level for the active model; "off" = default. */
   setModelReasoningLevel: (level: ReasoningLevel) => Promise<void>;
@@ -991,7 +1001,9 @@ export const useApp = create<AppState>((set, get) => ({
     const variant = level && level !== "off" ? level : undefined;
 
     // Optimistic echo so the composer feels instant; the core will replace it
-    // with the authoritative message on the next event.
+    // with the authoritative message on the next event. Parts get a synthetic
+    // `local-part-` id so the real part events (which carry their own ids) can
+    // replace them instead of appending a second copy — see the part handler.
     set((state) => ({
       busy: true,
       messages: [
@@ -1003,7 +1015,7 @@ export const useApp = create<AppState>((set, get) => ({
             role: "user",
             time: { created: Date.now() },
           },
-          parts,
+          parts: parts.map((part, i) => ({ ...part, id: `local-part-${Date.now()}-${i}` })),
         },
       ],
     }));
@@ -1261,7 +1273,18 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setAreaSize: (area, size) => {
-    const clamped = Math.min(AREA_SIZE_MAX, Math.max(AREA_SIZE_MIN, Math.round(size)));
+    // Viewport-aware clamp: a sidebar may grow as far as the user wants; the
+    // only stop is where the sibling area on that axis plus the middle column
+    // reach their minimums (see clampAreaSize — the old fixed 720 px cap is
+    // what made dragging stop around 40% of the window).
+    const visible = get().layout.areaVisible;
+    const clamped = clampAreaSize(
+      area,
+      size,
+      get().areaSizes,
+      { width: window.innerWidth, height: window.innerHeight },
+      visible
+    );
     // In-memory only: dragging fires this on every pointermove, so the write
     // to localStorage happens when the drag ends (see persistAreaSizes).
     set((state) => ({ areaSizes: { ...state.areaSizes, [area]: clamped } }));
@@ -1303,9 +1326,13 @@ export const useApp = create<AppState>((set, get) => ({
 
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   setSettingsOpen: (settingsOpen) => {
-    if (settingsOpen) set({ settingsInitialTab: null });
+    // Deep links (openSettingsAt) own the tab while the panel opens; the
+    // remembered tab is forgotten on CLOSE, so a generic reopen starts fresh
+    // without clobbering a tab that was just requested.
+    if (!settingsOpen) set({ settingsInitialTab: null });
     set({ settingsOpen });
   },
+  openSettingsAt: (tab) => set({ settingsInitialTab: tab, settingsOpen: true }),
   setSkillToInsert: (skillToInsert) => set({ skillToInsert }),
 
   openInEditor: async (path) => {
@@ -1946,7 +1973,11 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
         const messages = [...state.messages];
         const index = messages.findIndex((m) => m.info.id === info.id);
         if (index === -1) {
-          // Replace the optimistic echo of the same role, if present.
+          // Replace the optimistic echo of the same role, if present. The
+          // local parts are DROPPED, not kept: they carry no part ids, so the
+          // authoritative `message.part.updated` events that follow would not
+          // match them and would append a second copy of the same text — the
+          // "my prompt appears doubled" bug.
           const optimistic = messages.findIndex(
             (m) => m.info.id.startsWith("local-") && m.info.role === info.role
           );
@@ -1958,7 +1989,13 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
         } else {
           messages[index] = { ...messages[index], info };
         }
-        return { messages };
+        // Sweep any other optimistic echo of the same role: once a real
+        // message lands, a leftover local copy can only be a duplicate (e.g.
+        // from a part event having realized the echo earlier).
+        const pruned = messages.filter(
+          (m) => !(m.info.id.startsWith("local-") && m.info.role === info.role)
+        );
+        return { messages: pruned };
       });
       // A failed assistant message carries the provider error verbatim.
       if (info.error && info.sessionID === get().sessionId) {
@@ -1967,6 +2004,7 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
             sessionID: info.sessionID,
             providerID: info.providerID,
             modelID: info.modelID,
+            messageID: info.id,
           }),
           errorDetailOpen: false,
         });
@@ -1978,11 +2016,13 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
       const part = props.part as Part | undefined;
       if (!part?.type || part.sessionID !== get().sessionId) break;
       // A failed tool call is an OpenCode-reported error too: promote it.
+      // Tagged with the message/call ids so the error banner suppresses itself
+      // when this tool card already renders the failure inline.
       if (part.type === "tool" && part.state?.status === "error" && part.state.error) {
         set({
           lastError: normalizeError(
             { name: part.tool ?? "Tool", message: part.state.error, data: part.state },
-            { sessionID: part.sessionID }
+            { sessionID: part.sessionID, messageID: part.messageID, callID: part.callID }
           ),
           errorDetailOpen: false,
         });
@@ -1991,8 +2031,30 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
         const messages = [...state.messages];
         const index = messages.findIndex((m) => m.info.id === part.messageID);
         if (index === -1) {
-          // The first token can arrive before message.updated. Create a stub
-          // so the list does not stay empty while the agent is working.
+          // The first token can arrive before message.updated. If a pending
+          // optimistic user echo is still waiting to be realized by this very
+          // message, adopt it — creating a fresh stub here would leave the
+          // echo orphaned and show the prompt twice.
+          const echo = messages.findIndex(
+            (m) =>
+              m.info.id.startsWith("local-") &&
+              m.info.role === "user" &&
+              m.info.sessionID === part.sessionID &&
+              part.type === "text"
+          );
+          if (echo !== -1) {
+            messages[echo] = {
+              info: {
+                id: part.messageID ?? messages[echo].info.id,
+                sessionID: part.sessionID ?? state.sessionId ?? "",
+                role: "user",
+              },
+              parts: [part],
+            };
+            return { messages };
+          }
+          // Otherwise create a stub so the list does not stay empty while the
+          // agent is working.
           messages.push({
             info: {
               id: part.messageID ?? `unknown-${Date.now()}`,
@@ -2003,7 +2065,12 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
           });
           return { messages };
         }
-        const parts = [...messages[index].parts];
+        // Drop any optimistic placeholder of the same type: the authoritative
+        // part replaces it. Without this the echoed text stayed and the real
+        // part was appended next to it (prompt rendered twice).
+        const parts = messages[index].parts.filter(
+          (p) => !(p.id?.startsWith("local-part-") && p.type === part.type)
+        );
         const existing = parts.findIndex(
           (p) => (part.id && p.id === part.id) || (part.callID && p.callID === part.callID)
         );
@@ -2037,10 +2104,13 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
           });
           index = messages.length - 1;
         }
-        const parts = [...messages[index].parts];
+        const partType = field === "reasoning" ? "reasoning" : "text";
+        const parts = messages[index].parts.filter(
+          (p) => !(p.id?.startsWith("local-part-") && p.type === partType)
+        );
         const existing = parts.findIndex((p) => p.id === partID);
         if (existing === -1) {
-          parts.push({ id: partID, messageID, sessionID, type: field === "reasoning" ? "reasoning" : "text", text: delta });
+          parts.push({ id: partID, messageID, sessionID, type: partType, text: delta });
         } else {
           const prev = parts[existing];
           parts[existing] = { ...prev, text: (prev.text ?? "") + delta };

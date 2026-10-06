@@ -1,4 +1,4 @@
-import { pickUserProvider } from "./app";
+import { pickUserProvider, useApp } from "./app";
 import type { ProviderList } from "../core/types";
 
 function providerList(partial: Partial<ProviderList>): ProviderList {
@@ -62,5 +62,21 @@ describe("pickUserProvider", () => {
     });
 
     expect(pickUserProvider(list)).toBeNull();
+  });
+});
+
+describe("settings deep links", () => {
+  it("openSettingsAt opens the panel on the requested tab", () => {
+    // Regression: setSettingsTab + setSettingsOpen used to lose the tab
+    // because setSettingsOpen wiped settingsInitialTab while opening, so the
+    // Modes gear landed on General.
+    useApp.getState().openSettingsAt("modes");
+    expect(useApp.getState().settingsOpen).toBe(true);
+    expect(useApp.getState().settingsInitialTab).toBe("modes");
+
+    // Closing forgets the tab so a generic reopen starts fresh.
+    useApp.getState().setSettingsOpen(false);
+    expect(useApp.getState().settingsInitialTab).toBeNull();
+    expect(useApp.getState().settingsOpen).toBe(false);
   });
 });

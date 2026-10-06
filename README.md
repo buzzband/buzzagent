@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./branding/logo/buzzagent-icon.svg" width="150" alt="BuzzAgent bee logo">
+  <img src="./README/images/logo.jpg" width="150" alt="BuzzAgent bee logo">
 
   # 🐝 BuzzAgent
 
@@ -59,6 +59,10 @@ That is the difference: IDE extensions are tenants in someone else's IDE,
 closed IDEs are rented, terminal agents are blind. BuzzAgent is a
 free-flying open-source hive built on the strongest open agent core
 there is — and it shows in every panel.
+
+<div align="center">
+  <img src="./README/images/-KU8P2arE_NNO77o.jpg" width="720" alt="BuzzAgent workbench">
+</div>
 
 ## 🤔 Why this exists
 
@@ -227,6 +231,10 @@ behind an adapter interface, and only after the OpenCode slice is solid.
 
 ## ✨ Interface quality is the product
 
+<div align="center">
+  <img src="./README/images/hx23fSAMv_I1P8Vi.jpg" width="720" alt="BuzzAgent interface">
+</div>
+
 Everything above is plumbing. The reason to use BuzzAgent is the interface,
 so it is held to a standard rather than to “it works”: no blocking on the
 network, 60 fps while streaming, no layout shift, keyboard-first, real
@@ -311,6 +319,10 @@ The audit (Milestone 0) has been completed and verified empirically. See [docs/t
 - **Security.** HTTP Basic authentication with random generated 64-char passwords, binding only to `127.0.0.1`.
 
 ## 🟢 Current status
+
+<div align="center">
+  <img src="./README/images/JEpzBfx-tIaNwAku.jpg" width="720" alt="BuzzAgent in action">
+</div>
 
 BuzzAgent is rebuilt and fully functional:
 - **Core Supervisor (Rust)**: Automated process management, random port allocation, password generation, health checks, environment isolation, loopback `NO_PROXY` bypass, clean exit teardown.

@@ -50,8 +50,7 @@ export function Composer() {
     skillToInsert,
     setSkillToInsert,
     composerDraft,
-    setSettingsOpen,
-    setSettingsTab,
+    openSettingsAt,
     reportError,
   } = useApp(
     useShallow((s) => ({
@@ -72,8 +71,7 @@ export function Composer() {
       skillToInsert: s.skillToInsert,
       setSkillToInsert: s.setSkillToInsert,
       composerDraft: s.composerDraft,
-      setSettingsOpen: s.setSettingsOpen,
-      setSettingsTab: s.setSettingsTab,
+      openSettingsAt: s.openSettingsAt,
       reportError: s.reportError,
     }))
   );
@@ -91,10 +89,12 @@ export function Composer() {
 
   const openSettings = useCallback(
     (tab: string) => {
-      setSettingsTab(tab);
-      setSettingsOpen(true);
+      // One atomic update: the previous setSettingsTab+setSettingsOpen pair
+      // was undone by setSettingsOpen wiping settingsInitialTab on open, so
+      // every gear landed on the General pane instead of its own pane.
+      openSettingsAt(tab);
     },
-    [setSettingsTab, setSettingsOpen]
+    [openSettingsAt]
   );
 
   // Autosize without a layout thrash on every keystroke — until the user
@@ -191,8 +191,7 @@ export function Composer() {
     // would reject with "Choose a model first", which reads as a system error
     // rather than the single missing setup step that it is.
     if (!model) {
-      setSettingsTab("providers");
-      setSettingsOpen(true);
+      openSettings("providers");
       reportError(new Error(noModelError()));
       return;
     }

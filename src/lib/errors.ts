@@ -39,6 +39,11 @@ export interface ClassifiedError {
   modelID?: string;
   /** Session the failure happened in, when known. */
   sessionID?: string;
+  /** Message carrying this failure, when it also renders inline there. The
+   * chat banner suppresses itself when the carrier message is on screen. */
+  messageID?: string;
+  /** Tool call carrying this failure (same suppression rule, per tool card). */
+  callID?: string;
   /** ISO timestamp of when the UI learned about it. */
   time: string;
 }
@@ -197,6 +202,8 @@ interface ClassifyInput {
   providerID?: string;
   modelID?: string;
   sessionID?: string;
+  messageID?: string;
+  callID?: string;
 }
 
 /** Build a ClassifiedError from raw fields (core events, exceptions, fetches). */
@@ -225,6 +232,8 @@ export function classifyError(input: ClassifyInput): ClassifiedError {
     providerID: input.providerID,
     modelID: input.modelID,
     sessionID: input.sessionID,
+    messageID: input.messageID,
+    callID: input.callID,
     time: new Date().toISOString(),
   };
 }
@@ -247,7 +256,16 @@ function safeJson(value: unknown): string | undefined {
  *    in nested `data` fields whose shape varies by provider).
  *  - Plain `Error` objects and bare strings.
  */
-export function normalizeError(error: unknown, context: { sessionID?: string; providerID?: string; modelID?: string } = {}): ClassifiedError {
+export function normalizeError(
+  error: unknown,
+  context: {
+    sessionID?: string;
+    providerID?: string;
+    modelID?: string;
+    messageID?: string;
+    callID?: string;
+  } = {}
+): ClassifiedError {
   if (error instanceof CoreError) {
     const parsed = error.body ? parseJsonBody(error.body) : undefined;
     const bodyMessage = error.body
@@ -261,6 +279,8 @@ export function normalizeError(error: unknown, context: { sessionID?: string; pr
       sessionID: context.sessionID,
       providerID: context.providerID,
       modelID: context.modelID,
+      messageID: context.messageID,
+      callID: context.callID,
     });
   }
   if (error instanceof Error) {
@@ -271,6 +291,8 @@ export function normalizeError(error: unknown, context: { sessionID?: string; pr
       sessionID: context.sessionID,
       providerID: context.providerID,
       modelID: context.modelID,
+      messageID: context.messageID,
+      callID: context.callID,
     });
   }
   if (isRecord(error)) {
@@ -284,6 +306,10 @@ export function normalizeError(error: unknown, context: { sessionID?: string; pr
       providerID: strProp(data?.providerID) ?? context.providerID,
       modelID: strProp(data?.modelID) ?? context.modelID,
       sessionID: strProp(error.sessionID) ?? strProp(data?.sessionID) ?? context.sessionID,
+      // The inline carrier ids always come from the caller's context: the
+      // raw payload does not know which message/tool card renders it.
+      messageID: context.messageID,
+      callID: context.callID,
     });
   }
   return classifyError({ message: String(error), sessionID: context.sessionID });

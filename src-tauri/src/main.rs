@@ -785,6 +785,145 @@ async fn core_write_project_config(
     std::fs::write(&path, body).map_err(|e| format!("Failed to write project config: {}", e))
 }
 
+/// Fetch a text resource for the registry installers (skills.sh search,
+/// official MCP registry, raw.githubusercontent SKILL.md downloads).
+///
+/// The webview cannot do this fetch itself: registries do not send CORS
+/// headers, and the desktop network stack may route through a system proxy
+/// that breaks plain HTTPS. Rust's reqwest with `.no_proxy()` keeps it direct.
+/// HTTPS-only and size-capped: this runs on user-entered search text and must
+/// not become an arbitrary file/download primitive.
+#[tauri::command]
+async fn http_get_text(url: String) -> Result<String, String> {
+    if !url.starts_with("https://") {
+        return Err("Only https:// URLs are allowed".into());
+    }
+    const MAX_BYTES: usize = 2 * 1024 * 1024; // 2 MiB — search results and SKILL.md files
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "BuzzAgent/0.1 (+https://github.com/buzzband/buzzagent)")
+        .header("Accept", "application/json, text/markdown, text/plain, */*")
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {} from {}", status.as_u16(), url));
+    }
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_BYTES {
+        return Err(format!("Response too large ({} bytes)", bytes.len()));
+    }
+    String::from_utf8(bytes.to_vec()).map_err(|_| "Response is not valid UTF-8".into())
+}
+
+/// Write one file of a **global** (all-projects) skill into the sandboxed
+/// global config dir the core reads: `<data_dir>/core/config/opencode/<rel>`.
+///
+/// The core's global root is inside our XDG sandbox, so the frontend cannot
+/// reach it with the project-scoped fs commands; this is the guarded writer.
+/// Path traversal is rejected (`..`, absolute paths, backslash escapes).
+#[tauri::command]
+async fn core_write_global_file(
+    state: State<'_, AppState>,
+    rel_path: String,
+    content: String,
+) -> Result<(), String> {
+    let rel = Path::new(&rel_path);
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir))
+        || rel_path.contains('\\')
+    {
+        return Err(format!("Invalid skill path: {}", rel_path));
+    }
+    let root = state.data_dir.join("core/config/opencode");
+    let target = root.join(rel);
+    // Belt and braces: after joining, the target must still be inside root.
+    let canonical_root = root
+        .canonicalize()
+        .or_else(|_| {
+            std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+            root.canonicalize().map_err(|e| e.to_string())
+        })?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let canonical_target = target
+        .canonicalize()
+        .or_else(|_| parent_canonicalized(&target))
+        .unwrap_or_else(|_| target.clone());
+    if !canonical_target.starts_with(&canonical_root) {
+        return Err(format!("Skill path escapes the sandbox: {}", rel_path));
+    }
+    std::fs::write(&target, content).map_err(|e| format!("Cannot write {}: {}", rel_path, e))
+}
+
+/// Delete one file or folder of a **global** skill inside the sandboxed
+/// global config dir (mirror of `core_write_global_file` for removals).
+/// Same traversal guards as the writer.
+#[tauri::command]
+async fn core_delete_global_file(
+    state: State<'_, AppState>,
+    rel_path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    let rel = Path::new(&rel_path);
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir))
+        || rel_path.contains('\\')
+        || rel_path.is_empty()
+    {
+        return Err(format!("Invalid skill path: {}", rel_path));
+    }
+    let target = state.data_dir.join("core/config/opencode").join(rel);
+    if !target.exists() {
+        return Ok(()); // Already gone — removal is idempotent.
+    }
+    let result = if is_dir {
+        std::fs::remove_dir_all(&target)
+    } else {
+        std::fs::remove_file(&target)
+    };
+    result.map_err(|e| format!("Cannot delete {}: {}", rel_path, e))
+}
+
+/// Canonicalize the deepest existing ancestor of `path` and re-join the tail,
+/// for not-yet-created files (canonicalize fails on them).
+fn parent_canonicalized(path: &Path) -> Result<PathBuf, String> {
+    let mut anc = path.to_path_buf();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        match anc.canonicalize() {
+            Ok(real) => {
+                let mut resolved = real;
+                for part in tail.iter().rev() {
+                    resolved.push(part);
+                }
+                return Ok(resolved);
+            }
+            Err(_) => {
+                let name = anc
+                    .file_name()
+                    .ok_or_else(|| "Cannot resolve path".to_string())?
+                    .to_os_string();
+                tail.push(name);
+                if !anc.pop() {
+                    return Err("Cannot resolve path".to_string());
+                }
+            }
+        }
+    }
+}
+
 /// Replace the whole on-disk config (raw JSON editor).
 #[tauri::command]
 async fn core_replace_settings(
@@ -1039,6 +1178,20 @@ fn browser_discovery_report() -> String {
     browser::chromium_discovery_report()
 }
 
+/// Manual install command for the current distro (copyable fallback in the
+/// panel's no-browser state).
+#[tauri::command]
+fn browser_install_hint() -> String {
+    browser::install_command_hint()
+}
+
+/// One-click open-source Chromium install through the distro package manager
+/// (pkexec shows the OS password prompt).
+#[tauri::command]
+async fn browser_install_chromium() -> Result<String, String> {
+    browser::install_chromium().await
+}
+
 #[tauri::command]
 async fn browser_navigate(state: State<'_, AppState>, url: String) -> Result<String, String> {
     let mut browser = state.browser.lock().await;
@@ -1246,6 +1399,9 @@ async fn main() {
             core_write_project_config,
             core_save_custom_provider,
             probe_provider_models,
+            http_get_text,
+            core_write_global_file,
+            core_delete_global_file,
             git_changes,
             fs_tree,
             fs_create_file,
@@ -1259,6 +1415,8 @@ async fn main() {
             git_worktree_remove,
             browser_set_mode,
             browser_discovery_report,
+            browser_install_hint,
+            browser_install_chromium,
             browser_navigate,
             browser_screenshot,
             browser_click,

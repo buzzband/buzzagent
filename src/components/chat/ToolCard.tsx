@@ -132,9 +132,12 @@ export function ToolCard({ part }: { part: Part }) {
         </span>
       </button>
 
-      {open && hasDetail && (
+      {/* A failed tool always shows its error text inline (not behind a
+          click): the chat error banner suppresses itself for these failures,
+          so this card is the only place the message appears. */}
+      {(open || failed) && hasDetail && (
         <div className="border-t border-[var(--border-subtle)] px-2.5 pb-2">
-          {state?.input && Object.keys(state.input).length > 0 && (
+          {state?.input && (open || !failed) && Object.keys(state.input).length > 0 && (
             <Detail label="Input">
               <CodeBlock
                 code={JSON.stringify(state.input, null, 2)}
@@ -152,7 +155,7 @@ export function ToolCard({ part }: { part: Part }) {
             </Detail>
           )}
 
-          {state?.output && (
+          {state?.output && (open || !failed) && (
             <Detail label="Output">
               <CodeBlock
                 code={state.output}

@@ -238,6 +238,9 @@ pub struct BrowserManager {
     config: BrowserConfig,
     console_logs: Vec<ConsoleEntry>,
     browser: SharedBrowser,
+    /// Last URL navigated, so a dead browser can be relaunched onto the
+    /// same page instead of an empty tab.
+    last_url: Option<String>,
 }
 
 impl BrowserManager {
@@ -246,6 +249,7 @@ impl BrowserManager {
             config: BrowserConfig::default(),
             console_logs: Vec::new(),
             browser: Arc::new(Mutex::new(None)),
+            last_url: None,
         }
     }
 
@@ -254,6 +258,7 @@ impl BrowserManager {
             config,
             console_logs: Vec::new(),
             browser: Arc::new(Mutex::new(None)),
+            last_url: None,
         }
     }
 
@@ -283,6 +288,17 @@ impl BrowserManager {
                         .headless(true)
                         .path(Some(executable))
                         .window_size(Some((self.config.width, self.config.height)))
+                        // Args that keep Chromium alive in AppImage/container
+                        // environments: Chrome's own sandbox cannot work there
+                        // (no user namespaces), and /dev/shm is often tiny —
+                        // without these the process dies shortly after launch
+                        // and every later CDP call fails with "connection is
+                        // closed".
+                        .args(vec![
+                            std::ffi::OsStr::new("--no-sandbox"),
+                            std::ffi::OsStr::new("--disable-gpu"),
+                            std::ffi::OsStr::new("--disable-dev-shm-usage"),
+                        ])
                         .build()
                         .map_err(|e| format!("Browser launch options error: {}", e))?;
                     headless_chrome::Browser::new(options).map_err(|e| {
@@ -309,13 +325,37 @@ impl BrowserManager {
     }
 
     /// Navigate the headless browser to `url` and wait for the page to load.
+    /// Remembers the URL so a dead browser can be relaunched onto the same
+    /// page; a dead connection heals transparently with one retry.
     pub async fn navigate(&mut self, url: &str) -> Result<(), String> {
+        self.last_url = Some(url.to_string());
+        match self.navigate_inner(url).await {
+            Ok(()) => Ok(()),
+            Err(e) if is_connection_dead(&e) => {
+                self.console_logs.push(ConsoleEntry {
+                    level: "warn".into(),
+                    message: "Browser process died — relaunching".into(),
+                    timestamp: now_ms(),
+                });
+                self.reset_browser().await;
+                self.navigate_inner(url).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn navigate_inner(&mut self, url: &str) -> Result<(), String> {
         {
             let guard = self.get_or_launch().await?;
             let browser = guard.as_ref().unwrap();
-            let tab = browser
-                .new_tab()
-                .map_err(|e| format!("Failed to open tab: {}", e))?;
+            // Reuse the existing tab instead of leaking a new one per
+            // navigation — a long session used to accumulate dozens of tabs.
+            let tab = match current_tab(browser) {
+                Ok(tab) => tab,
+                Err(_) => browser
+                    .new_tab()
+                    .map_err(|e| format!("Failed to open tab: {}", e))?,
+            };
             tab.navigate_to(url)
                 .map_err(|e| format!("Navigation failed: {}", e))?;
             tab.wait_until_navigated()
@@ -329,8 +369,43 @@ impl BrowserManager {
         Ok(())
     }
 
+    /// Drop the (possibly dead) browser handle so the next get_or_launch
+    /// starts a fresh process. Dropping the Browser also kills its child
+    /// process; when the process already died this just clears the handle.
+    async fn reset_browser(&self) {
+        let mut guard = self.browser.lock().await;
+        *guard = None;
+    }
+
+    /// Relaunch after a dead connection and restore the last page.
+    async fn recover(&mut self) -> Result<(), String> {
+        self.reset_browser().await;
+        if let Some(url) = self.last_url.clone() {
+            self.navigate_inner(&url).await?;
+        }
+        Ok(())
+    }
+
     /// Capture a PNG screenshot of the current page, returned as base64.
-    pub async fn screenshot(&self) -> Result<String, String> {
+    /// Self-heals: a dead browser process is relaunched onto the last URL
+    /// and the capture retried once.
+    pub async fn screenshot(&mut self) -> Result<String, String> {
+        match self.try_screenshot().await {
+            Ok(v) => Ok(v),
+            Err(e) if is_connection_dead(&e) => {
+                self.console_logs.push(ConsoleEntry {
+                    level: "warn".into(),
+                    message: "Browser process died — relaunching".into(),
+                    timestamp: now_ms(),
+                });
+                self.recover().await?;
+                self.try_screenshot().await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn try_screenshot(&self) -> Result<String, String> {
         let guard = self.browser.lock().await;
         let browser = guard
             .as_ref()
@@ -349,6 +424,17 @@ impl BrowserManager {
 
     /// Click an element matched by CSS selector.
     pub async fn click(&mut self, selector: &str) -> Result<(), String> {
+        match self.try_click(selector).await {
+            Ok(()) => Ok(()),
+            Err(e) if is_connection_dead(&e) => {
+                self.recover().await?;
+                self.try_click(selector).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn try_click(&self, selector: &str) -> Result<(), String> {
         let guard = self.get_or_launch().await?;
         let browser = guard.as_ref().unwrap();
         let tab = current_tab(browser)?;
@@ -364,6 +450,17 @@ impl BrowserManager {
     /// Type text into the focused element; focuses the element matched by
     /// CSS selector first.
     pub async fn type_text(&mut self, selector: &str, text: &str) -> Result<(), String> {
+        match self.try_type_text(selector, text).await {
+            Ok(()) => Ok(()),
+            Err(e) if is_connection_dead(&e) => {
+                self.recover().await?;
+                self.try_type_text(selector, text).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn try_type_text(&self, selector: &str, text: &str) -> Result<(), String> {
         let guard = self.get_or_launch().await?;
         let browser = guard.as_ref().unwrap();
         let tab = current_tab(browser)?;
@@ -414,6 +511,18 @@ async fn resolve_cdp_ws_url(cdp_url: &str) -> Result<String, String> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| "CDP response missing webSocketDebuggerUrl".to_string())
+}
+
+/// True when a CDP error means the browser process or its websocket is
+/// gone. The headless_chrome crate phrases it "Unable to make method calls
+/// because underlying connection is closed" — once that surfaces, every
+/// later call fails identically until the browser is relaunched.
+fn is_connection_dead(err: &str) -> bool {
+    err.contains("connection is closed")
+        || err.contains("connection closed")
+        || err.contains("broken pipe")
+        || err.contains("Browser has been closed")
+        || err.contains("Process has been closed")
 }
 
 /// Most recently opened tab (the one the last navigate() created).

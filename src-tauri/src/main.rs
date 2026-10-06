@@ -1199,6 +1199,32 @@ async fn browser_install_chromium() -> Result<String, String> {
     browser::install_chromium().await
 }
 
+/// Open a URL in a real, live browser window — a native OS webview the user
+/// can scroll, click and type in. This is NOT the CDP screenshot pipeline:
+/// the panel keeps serving the agent loop (screenshots, console, clicks),
+/// while this window is what a human actually browses in. Repeated calls
+/// navigate the same window instead of piling up new ones.
+#[tauri::command]
+async fn browser_open_live(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    let parsed = url::Url::parse(&url).map_err(|e| format!("Invalid URL: {}", e))?;
+    const LABEL: &str = "live-browser";
+    if let Some(win) = app.get_webview_window(LABEL) {
+        // Reuse: navigate the existing live window to the new URL.
+        let script = format!("window.location.replace({:?});", url);
+        win.eval(&script)
+            .map_err(|e| format!("Failed to navigate the live browser: {}", e))?;
+        let _ = win.set_focus();
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External(parsed))
+        .title("BuzzAgent — Live Browser")
+        .inner_size(1280.0, 860.0)
+        .build()
+        .map_err(|e| format!("Failed to open the live browser window: {}", e))?;
+    Ok(())
+}
+
 #[tauri::command]
 async fn browser_navigate(state: State<'_, AppState>, url: String) -> Result<String, String> {
     let mut browser = state.browser.lock().await;
@@ -1208,7 +1234,7 @@ async fn browser_navigate(state: State<'_, AppState>, url: String) -> Result<Str
 
 #[tauri::command]
 async fn browser_screenshot(state: State<'_, AppState>) -> Result<String, String> {
-    let browser = state.browser.lock().await;
+    let mut browser = state.browser.lock().await;
     browser.screenshot().await
 }
 
@@ -1424,6 +1450,7 @@ async fn main() {
             browser_discovery_report,
             browser_install_hint,
             browser_install_chromium,
+            browser_open_live,
             browser_navigate,
             browser_screenshot,
             browser_click,

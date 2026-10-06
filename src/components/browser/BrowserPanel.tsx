@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Copy,
   Download,
+  ExternalLink,
   Globe,
   Loader2,
   MousePointer,
@@ -110,6 +111,27 @@ export function BrowserPanel() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+    }
+  };
+
+  /** Open the URL in a real live browser window (native webview). The CDP
+   *  screenshot panel keeps serving the agent loop; this is what a human
+   *  browses in. */
+  const handleOpenLive = async () => {
+    let targetUrl = url.trim();
+    if (!targetUrl) return;
+    // Same file-URL resolution as navigate: relative paths resolve inside
+    // the open project.
+    if (!/^\w+:\/\//.test(targetUrl)) {
+      const absolute = targetUrl.startsWith("/")
+        ? targetUrl
+        : `${projectDir?.replace(/\/+$/, "")}/${targetUrl}`;
+      targetUrl = `file://${absolute}`;
+    }
+    try {
+      await invoke("browser_open_live", { url: targetUrl });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -319,6 +341,16 @@ export function BrowserPanel() {
         >
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
           Refresh
+        </button>
+
+        <button
+          type="button"
+          onClick={() => void handleOpenLive()}
+          title="Open this URL in a real, live browser window"
+          className="flex items-center gap-1 rounded-md border border-[var(--accent)]/50 bg-[var(--accent-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/15"
+        >
+          <ExternalLink size={12} />
+          Live
         </button>
       </div>
 

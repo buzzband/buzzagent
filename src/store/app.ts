@@ -1518,7 +1518,7 @@ export const useApp = create<AppState>((set, get) => ({
     if (!model) return;
     const entry = (
       customProviders[model.providerID] as
-        | { models?: Record<string, { reasoning?: boolean }> }
+        | { models?: Record<string, { reasoning?: boolean; level?: string }> }
         | undefined
     )?.models?.[model.modelID];
     if (!entry) {
@@ -1527,7 +1527,16 @@ export const useApp = create<AppState>((set, get) => ({
       }
       return;
     }
-    await get().setModelReasoningState({ reasoning: !entry.reasoning });
+    // Turning reasoning ON must produce a *live* level immediately: no
+    // saved level means the model was never asked to think, so start at the
+    // top of the stack ("max"). The dropdown further down lets the user
+    // downshift; an undefended "// enable? set level max" break is what the
+    // user requested when they clicked the chip.
+    const next = !entry.reasoning;
+    await get().setModelReasoningState({
+      reasoning: next,
+      ...(next && !entry.level ? { level: "max" } : {}),
+    });
   },
 
   /**
@@ -1934,7 +1943,21 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
         });
         startWatchdog(set, get);
       } else if (type) {
-        set({ busy: true, turnStatus: { type, since: Date.now() } });
+        // Generic "busy" frames must NOT wipe the retry explanation — a
+        // provider-timeout message flashing for one frame and then reverting
+        // to a bare "Thinking…" is exactly the "I don't have time to see it"
+        // report. Keep the previous message/attempt until idle or a new
+        // retry frame replaces them.
+        const prev = get().turnStatus;
+        set({
+          busy: true,
+          turnStatus: {
+            type,
+            since: prev?.since ?? Date.now(),
+            message: prev?.message,
+            attempt: prev?.attempt,
+          },
+        });
         startWatchdog(set, get);
       }
       break;

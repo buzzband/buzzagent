@@ -945,7 +945,7 @@ pub struct FsEntry {
     pub size: u64,
 }
 
-const FS_IGNORED: [&str; 12] = [
+const FS_IGNORED: [&str; 15] = [
     ".git",
     "node_modules",
     "target",
@@ -958,6 +958,13 @@ const FS_IGNORED: [&str; 12] = [
     ".idea",
     ".cache",
     ".buzzagent",
+    // OpenCode/BuzzAgent-managed config files contain provider keys and
+    // session metadata. They are edited through the Settings UI, not the
+    // file tree — exposing them in the Explorer leaks credentials into a
+    // panel that shows raw text to the user (and to screenshots).
+    "opencode.json",
+    "opencode.jsonc",
+    "config.jsonc",
 ];
 
 /// One level of the project file tree (read-only; edits stay in the core).

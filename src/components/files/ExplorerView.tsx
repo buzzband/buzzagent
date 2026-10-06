@@ -61,6 +61,13 @@ export function ExplorerView() {
     | null
   >(null);
 
+  /** Inline confirm for file/folder deletion. Not a Tauri dialog: the
+   * `plugin:dialog|confirm` ACL fails in packaged builds (see the AppImage
+   * crash reports), so we gate the delete locally. */
+  const [deleteTarget, setDeleteTarget] = useState<
+    { path: string; isDir: boolean; name: string } | null
+  >(null);
+
   const loadLevel = useCallback(
     async (rel: string) => {
       if (!projectDir) return;
@@ -95,7 +102,11 @@ export function ExplorerView() {
   // ends — and after any local create/rename/delete (fsVersion bumps).
   useEffect(() => {
     if (busy) return;
-    for (const rel of Object.keys(expanded).filter((k) => expanded[k])) {
+    const expandedAndLevelKeys = new Set([
+      ...Object.keys(expanded).filter((k) => expanded[k]),
+      ...Object.keys(levels).filter((k) => k !== ""),
+    ]);
+    for (const rel of expandedAndLevelKeys) {
       void loadLevel(rel);
     }
     void loadLevel("");
@@ -260,18 +271,24 @@ export function ExplorerView() {
     setDraft(null);
   };
 
-  const deleteEntry = async (entry: { path: string; is_dir: boolean; name: string }) => {
-    const confirmed = window.confirm(
-      t(language, "files.deleteConfirm").replace("{{name}}", entry.name)
-    );
-    if (!confirmed) return;
-    await fsMutate("delete", { path: entry.path, isDir: entry.is_dir });
+  const deleteEntry = (entry: { path: string; is_dir: boolean; name: string }) => {
+    // Route through a local confirm modal (Tauri dialog plugin ACL is unreliable
+    // on Linux AppImage builds and is the exact crash signature in the changelog).
+    setDeleteTarget({ path: entry.path, isDir: entry.is_dir, name: entry.name });
+    setMenu(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    await fsMutate("delete", { path: target.path, isDir: target.isDir });
     // The Editor must not keep showing a ghost of a deleted file.
     const open = useApp.getState().editorFile;
-    if (open && (open.path === entry.path || open.path.startsWith(`${entry.path}/`))) {
+    if (open && (open.path === target.path || open.path.startsWith(`${target.path}/`))) {
       useApp.getState().closeEditor();
     }
-    if (selected === entry.path) setSelected(null);
+    if (selected === target.path) setSelected(null);
   };
 
   const renderLevel = (rel: string, depth: number) => {
@@ -451,6 +468,42 @@ export function ExplorerView() {
           }}
           onClose={() => setMenu(null)}
         />
+      )}
+
+      {deleteTarget && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) void setDeleteTarget(null);
+          }}
+        >
+          <div className="w-full max-w-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-overlay)] p-4 shadow-[var(--shadow-panel)]">
+            <p className="text-xs font-semibold text-[var(--danger)]">
+              {t(language, "files.deleteConfirm").replace("{{name}}", deleteTarget.name)}
+            </p>
+            <p className="mt-1.5 text-2xs text-[var(--fg-secondary)]">
+              This action can not be undone.
+            </p>
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="rounded-md border border-[var(--border-subtle)] px-3 py-1.5 text-2xs text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDelete()}
+                className="rounded-md bg-[var(--danger)] px-3 py-1.5 text-2xs font-medium text-white hover:opacity-90"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

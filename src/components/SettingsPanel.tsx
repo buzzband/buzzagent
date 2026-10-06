@@ -186,6 +186,14 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
     open: boolean;
     initial: ProviderDraft | null;
   }>({ open: false, initial: null });
+  /** Inline confirm for provider deletion — avoids the Tauri `plugin:dialog` ACL
+   * surface (an AppImage build once crashed with a missing ACL entry), so we
+   * render a local prompt instead of the webview's `confirm()`. */
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    open: boolean;
+    id: string;
+    name: string;
+  } | null>(null);
 
   // Honor deep links like Settings → Providers from gear buttons.
   useEffect(() => {
@@ -1068,12 +1076,8 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                if (confirm(`Remove provider "${draft.name}"?`)) {
-                                  void deleteProvider(id);
-                                }
-                              }}
-                              className="rounded-md border border-[var(--border-subtle)] px-2.5 py-1 text-2xs text-[var(--fg-muted)] hover:border-[var(--danger)]/40 hover:text-[var(--danger)]"
+                              onClick={() => setDeleteConfirm({ open: true, id, name: draft.name })}
+                              className="rounded-md border border-[var(--border-subtle)] px-2.5 py-1 text-2xs text-[var(--fg-muted)] transition-colors hover:border-[var(--danger)]/40 hover:text-[var(--danger)]"
                             >
                               {t(language, "common.delete")}
                             </button>
@@ -1416,6 +1420,17 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
           initial={providerDialog.initial}
           onClose={() => setProviderDialog({ open: false, initial: null })}
         />
+        {deleteConfirm?.open && (
+          <DeleteProviderConfirm
+            name={deleteConfirm.name}
+            onCancel={() => setDeleteConfirm(null)}
+            onConfirm={() => {
+              const target = deleteConfirm.id;
+              setDeleteConfirm(null);
+              void useApp.getState().deleteProvider(target);
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -1674,6 +1689,58 @@ function ListEditor({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ attachments
+
+/** Tiny inline confirm for "Delete provider" actions, with no IPC or plugin
+ * dependency. The `window.confirm` shim in main.tsx muzzles the webview-level
+ * fallback, so this is the only place the removal is actually gated. */
+function DeleteProviderConfirm({
+  name,
+  onCancel,
+  onConfirm,
+}: {
+  name: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel();
+      }}
+    >
+      <div className="w-full max-w-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-overlay)] p-4 shadow-[var(--shadow-panel)]">
+        <p className="text-xs font-semibold text-[var(--fg-primary)]">
+          {`Remove provider "${name}"?`}
+        </p>
+        <p className="mt-1.5 text-2xs leading-relaxed text-[var(--fg-secondary)]">
+          The provider entry, its custom models, and any credentials set
+          for it will be removed. This can not be undone.
+        </p>
+        <div className="mt-3 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md border border-[var(--border-subtle)] px-3 py-1.5 text-2xs text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="rounded-md bg-[var(--danger)] px-3 py-1.5 text-2xs font-medium text-white hover:opacity-90"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

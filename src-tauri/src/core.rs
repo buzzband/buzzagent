@@ -944,6 +944,27 @@ fn find_opencode_binary(requested: Option<PathBuf>, data_dir: &Path) -> Result<P
             path.display()
         ));
     }
+
+    /// Verify a candidate binary actually runs. The AppImage bundling step
+    /// (linuxdeploy GTK plugin) has corrupted the sidecar binary in the past
+    /// — it resizes ELF headers and the result segfaults immediately. A
+    /// sidecar that cannot execute is worse than no sidecar: it crashes the
+    /// core spawn with a cryptic "Failed to start" instead of falling back
+    /// to a system binary. Run `opencode --version` with a short timeout to
+    /// prove the file is executable and not corrupted.
+    fn validate_binary(path: &Path) -> bool {
+        // A corrupted binary (bad ELF from the AppImage GTK plugin) segfaults
+        // instantly — a working one prints the version in milliseconds. The
+        // blocking call is safe here: the failure mode is a crash, not a hang.
+        std::process::Command::new(path)
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
     // 1. Check next to app / in sidecar dir
     if let Ok(exe_dir) = std::env::current_exe().map(|p| p.parent().map(|p| p.to_path_buf())) {
         if let Some(dir) = exe_dir {
@@ -955,7 +976,10 @@ fn find_opencode_binary(requested: Option<PathBuf>, data_dir: &Path) -> Result<P
             ] {
                 let p = dir.join(candidate);
                 if p.is_file() {
-                    return std::fs::canonicalize(&p).map_err(|e| e.to_string());
+                    let canonical = std::fs::canonicalize(&p).map_err(|e| e.to_string())?;
+                    if validate_binary(&canonical) {
+                        return Ok(canonical);
+                    }
                 }
             }
         }
@@ -964,28 +988,42 @@ fn find_opencode_binary(requested: Option<PathBuf>, data_dir: &Path) -> Result<P
     // so Command::new does not resolve relative to project_dir!)
     let local_bin = data_dir.join("bin/opencode");
     if local_bin.is_file() {
-        return std::fs::canonicalize(&local_bin).map_err(|e| e.to_string());
+        let canonical = std::fs::canonicalize(&local_bin).map_err(|e| e.to_string())?;
+        if validate_binary(&canonical) {
+            return Ok(canonical);
+        }
     }
     for rel in ["src-tauri/bin/opencode", "bin/opencode"] {
         let p = PathBuf::from(rel);
         if p.is_file() {
-            return std::fs::canonicalize(&p).map_err(|e| e.to_string());
+            let canonical = std::fs::canonicalize(&p).map_err(|e| e.to_string())?;
+            if validate_binary(&canonical) {
+                return Ok(canonical);
+            }
         }
     }
     // 3. Check ~/.cache/opencode/bin/opencode or /tmp/kilo/oc/opencode
     if let Some(home) = dirs_home() {
         let p = home.join(".cache/opencode/bin/opencode");
         if p.is_file() {
-            return std::fs::canonicalize(&p).map_err(|e| e.to_string());
+            let canonical = std::fs::canonicalize(&p).map_err(|e| e.to_string())?;
+            if validate_binary(&canonical) {
+                return Ok(canonical);
+            }
         }
     }
     let tmp_bin = PathBuf::from("/tmp/kilo/oc/opencode");
     if tmp_bin.is_file() {
-        return std::fs::canonicalize(&tmp_bin).map_err(|e| e.to_string());
+        let canonical = std::fs::canonicalize(&tmp_bin).map_err(|e| e.to_string())?;
+        if validate_binary(&canonical) {
+            return Ok(canonical);
+        }
     }
     // 4. Check if "opencode" is in PATH
     if let Some(p) = find_in_path("opencode") {
-        return Ok(p);
+        if validate_binary(&p) {
+            return Ok(p);
+        }
     }
     Err(
         "OpenCode core binary not found. Please install opencode or place the binary on your PATH."

@@ -623,7 +623,12 @@ export function Composer() {
                         role="menu"
                         className="absolute bottom-full left-0 z-20 mb-1.5 w-40 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-overlay)] py-1 shadow-[var(--shadow-panel)]"
                       >
-                        {(["off", ...REASONING_LEVELS] as const).map((item) => {
+                        {(
+                          (reasoningOn
+                            ? REASONING_LEVELS
+                            : (["off", ...REASONING_LEVELS] as const)
+                          )
+                        ).map((item) => {
                           const active = reasoningLevel === item;
                           return (
                             <button

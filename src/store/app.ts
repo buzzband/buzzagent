@@ -92,6 +92,8 @@ export interface NotifyPrefs {
   desktop: boolean;
   ntfyUrl: string;
   ntfyTopic: string;
+  /** Sound preset id ("bell" | "chime" | "ding" | "beep"). */
+  soundId: string;
 }
 
 export interface VoicePrefs {
@@ -521,6 +523,7 @@ export const useApp = create<AppState>((set, get) => ({
     desktop: true,
     ntfyUrl: "",
     ntfyTopic: "",
+    soundId: "bell",
   }),
   voice: loadJson("buzzagent.voice", { endpoint: "", model: "" }),
   agents: [],
@@ -1823,20 +1826,7 @@ function notifyTurnComplete(get: Getter) {
   }
 
   if (notify.sound) {
-    try {
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.06, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.35);
-    } catch {
-      // Audio may be blocked; notification still went out.
-    }
+    playCompletionSound(notify.soundId);
   }
 
   const base = notify.ntfyUrl.trim().replace(/\/+$/, "");
@@ -1847,6 +1837,46 @@ function notifyTurnComplete(get: Getter) {
       body: `BuzzAgent: ${title}`,
       headers: { Title: "BuzzAgent" },
     }).catch(() => undefined);
+  }
+}
+
+/** Sound presets for the completion notification. Each is a tiny
+ *  Web Audio oscillator sequence — no audio assets needed. */
+const SOUND_PRESETS: Record<string, { notes: number[]; gap: number; dur: number }> = {
+  bell: { notes: [880], gap: 0, dur: 0.35 },
+  chime: { notes: [660, 880, 990], gap: 0.15, dur: 0.12 },
+  ding: { notes: [1100, 880], gap: 0.1, dur: 0.1 },
+  beep: { notes: [440], gap: 0, dur: 0.2 },
+};
+
+/** Play the completion sound. The AudioContext must be resumed() because
+ *  the webview autoplay policy suspends it until a user gesture. We fire it
+ *  inside a try/catch so a blocked context never breaks the notification. */
+export function playCompletionSound(soundId: string) {
+  try {
+    const preset = SOUND_PRESETS[soundId] ?? SOUND_PRESETS.bell;
+    const ctx = new AudioContext();
+    void ctx.resume().then(() => {
+      let t0 = ctx.currentTime + 0.05;
+      for (const freq of preset.notes) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = "sine";
+        gain.gain.setValueAtTime(0.08, t0);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + preset.dur);
+        osc.start(t0);
+        osc.stop(t0 + preset.dur);
+        t0 += preset.gap + preset.dur;
+      }
+      // Close the context after all notes have played to free resources.
+      const totalMs = (preset.gap + preset.dur) * preset.notes.length * 1000 + 100;
+      setTimeout(() => void ctx.close(), totalMs);
+    });
+  } catch {
+    // Audio may be blocked entirely; notification still went out.
   }
 }
 

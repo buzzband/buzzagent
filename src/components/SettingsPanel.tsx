@@ -26,7 +26,7 @@ import {
   Terminal,
   X,
 } from "lucide-react";
-import { THEME_OPTIONS, useApp, type Theme } from "../store/app";
+import { THEME_OPTIONS, useApp, playCompletionSound, type Theme } from "../store/app";
 import { LANGUAGES, t, PROJECT_URL, type Language } from "../lib/i18n";
 import { ZOOM_LEVELS } from "../lib/zoom";
 import { copyText, appVersion, buildId } from "./ErrorBoundary";
@@ -194,6 +194,8 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
     id: string;
     name: string;
   } | null>(null);
+  /** Transient feedback for the ntfy "test" button. */
+  const [ntfyStatus, setNtfyStatus] = useState<"idle" | "sent" | "failed">("idle");
 
   // Honor deep links like Settings → Providers from gear buttons.
   useEffect(() => {
@@ -1275,6 +1277,28 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                         onChange={(v) => setNotify({ sound: v })}
                         label={t(language, "notify.sound")}
                       />
+                      {notify.sound && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <select
+                            value={notify.soundId}
+                            onChange={(e) => setNotify({ soundId: e.target.value })}
+                            aria-label={t(language, "notify.soundId")}
+                            className="rounded-md border border-[var(--border-default)] bg-[var(--bg-base)] px-2 py-1 text-2xs text-[var(--fg-primary)] focus:border-[var(--accent)] focus:outline-none"
+                          >
+                            <option value="bell">{t(language, "notify.soundBell")}</option>
+                            <option value="chime">{t(language, "notify.soundChime")}</option>
+                            <option value="ding">{t(language, "notify.soundDing")}</option>
+                            <option value="beep">{t(language, "notify.soundBeep")}</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => playCompletionSound(notify.soundId)}
+                            className="rounded-md border border-[var(--border-subtle)] px-2.5 py-1 text-2xs text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+                          >
+                            {t(language, "notify.soundTest")}
+                          </button>
+                        </div>
+                      )}
                       <Toggle
                         checked={Boolean(notify.ntfyUrl && notify.ntfyTopic)}
                         onChange={(v) =>
@@ -1313,6 +1337,36 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                             className="mt-1 w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-base)] px-2.5 py-1.5 font-mono text-xs text-[var(--fg-primary)] focus:border-[var(--accent)] focus:outline-none"
                           />
                         </label>
+                        <div className="sm:col-span-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const base = notify.ntfyUrl.trim().replace(/\/+$/, "");
+                              const topic = notify.ntfyTopic.trim();
+                              if (!base || !topic) return;
+                              void fetch(`${base}/${topic}`, {
+                                method: "POST",
+                                body: "BuzzAgent: test notification",
+                                headers: { Title: "BuzzAgent test" },
+                              })
+                                .then(() => setNtfyStatus("sent"))
+                                .catch(() => setNtfyStatus("failed"));
+                            }}
+                            className="rounded-md border border-[var(--border-subtle)] px-2.5 py-1 text-2xs text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+                          >
+                            {t(language, "notify.ntfyTest")}
+                          </button>
+                          {ntfyStatus === "sent" && (
+                            <span className="ml-2 text-2xs text-[var(--accent)]">
+                              {t(language, "notify.ntfyTestSent")}
+                            </span>
+                          )}
+                          {ntfyStatus === "failed" && (
+                            <span className="ml-2 text-2xs text-[var(--danger)]">
+                              {t(language, "notify.ntfyTestFailed")}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
                   </Section>

@@ -1,6 +1,6 @@
 {
   "name": "buzzagent",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "Open-source visual workbench for AI coding agents — an opencode core with a GUI, and zero telemetry.",
   "productName": "BuzzAgent",
   "author": "BuzzAgent <hello@buzzagent.dev>",

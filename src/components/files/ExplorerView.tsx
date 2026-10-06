@@ -152,7 +152,6 @@ export function ExplorerView() {
       window.removeEventListener("resize", close);
       window.removeEventListener("keydown", key);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menu, levels]);
 
   /** Browser previews HTML/SVG straight off disk via its file:// handling. */

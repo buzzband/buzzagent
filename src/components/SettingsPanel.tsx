@@ -150,7 +150,6 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
     setNotify,
     agents,
     customProviders,
-    deleteProvider,
     loadAgents,
     settingsInitialTab,
   } = useApp(
@@ -172,7 +171,6 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
       setNotify: s.setNotify,
       agents: s.agents,
       customProviders: s.customProviders,
-      deleteProvider: s.deleteProvider,
       loadAgents: s.loadAgents,
       settingsInitialTab: s.settingsInitialTab,
     }))

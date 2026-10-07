@@ -71,19 +71,31 @@ async function getHighlighter(): Promise<HighlighterCore> {
     // The `shiki` barrel export pulls in every language it knows (~26 MB and
     // 300+ chunks), which is unacceptable for a desktop bundle.
     highlighterPromise = (async () => {
-      const [{ createHighlighterCore }, { createOnigurumaEngine }] = await Promise.all([
-        import("shiki/core"),
-        import("shiki/engine/oniguruma"),
-      ]);
-
-      return createHighlighterCore({
-        themes: [
-          import("@shikijs/themes/github-dark-default"),
-          import("@shikijs/themes/github-light-default"),
-        ],
-        langs: BASE_LANGS.map((lang) => LANG_LOADERS[lang]).filter(Boolean),
-        engine: createOnigurumaEngine(import("shiki/wasm")),
-      });
+      const { createHighlighterCore } = await import("shiki/core");
+      const themes = [
+        import("@shikijs/themes/github-dark-default"),
+        import("@shikijs/themes/github-light-default"),
+      ];
+      const langs = BASE_LANGS.map((lang) => LANG_LOADERS[lang]).filter(Boolean);
+      // Oniguruma is the reference engine but needs WebAssembly: a CSP
+      // without 'wasm-unsafe-eval' (or a WASM-less platform) makes it fail
+      // silently — the editor then renders unhighlighted text forever. The
+      // pure-JS engine is the fallback so colors survive everywhere.
+      try {
+        const { createOnigurumaEngine } = await import("shiki/engine/oniguruma");
+        return await createHighlighterCore({
+          themes,
+          langs,
+          engine: createOnigurumaEngine(import("shiki/wasm")),
+        });
+      } catch {
+        const { createJavaScriptRegexEngine } = await import("shiki/engine/javascript");
+        return await createHighlighterCore({
+          themes,
+          langs,
+          engine: createJavaScriptRegexEngine({ forgiving: true }),
+        });
+      }
     })();
   }
   return highlighterPromise;

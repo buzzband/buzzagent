@@ -123,6 +123,11 @@ export function BrowserPanel() {
       // in sync so the agent still sees what the user sees.
       if (liveMode) {
         await invoke("browser_open_live", { url: resolved });
+        // Creation/navigation changes no React deps — without an explicit
+        // push the webview sits at its placeholder position (which
+        // WebKitGTK clamps to the window bottom) instead of the panel.
+        pushLiveRect(true);
+        requestAnimationFrame(() => pushLiveRect(true));
       }
       const base64Png = await invoke<string>("browser_navigate", { url: resolved });
       setScreenshot(base64Png);
@@ -245,6 +250,10 @@ export function BrowserPanel() {
         await invoke("browser_open_live", { url: targetUrl });
         setLiveMode(true);
         localStorage.setItem("buzzagent.browser.live", "true");
+        // Creation changes no React deps — push the rect explicitly or the
+        // just-created webview stays at its (clamped) placeholder position.
+        pushLiveRect(true);
+        requestAnimationFrame(() => pushLiveRect(true));
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }

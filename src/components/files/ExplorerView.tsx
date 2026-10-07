@@ -162,7 +162,25 @@ export function ExplorerView() {
   /** Hand the file to the Browser panel: open its tab and pass the path. */
   const openInBrowserPanel = (absPath: string) => {
     openWindow("browser");
-    window.dispatchEvent(new CustomEvent("buzzagent:browser-open-file", { detail: absPath }));
+    // Defer the event: openWindow's state update is async in React, and a
+    // synchronous dispatch would fire before the BrowserPanel (and its
+    // listener) mounts — the first-ever open used to do nothing. One frame
+    // is enough for React to mount the panel; a second retry covers slow
+    // machines (the panel's own handler is idempotent).
+    window.setTimeout(
+      () =>
+        window.dispatchEvent(
+          new CustomEvent("buzzagent:browser-open-file", { detail: absPath })
+        ),
+      50
+    );
+    window.setTimeout(
+      () =>
+        window.dispatchEvent(
+          new CustomEvent("buzzagent:browser-open-file", { detail: absPath })
+        ),
+      250
+    );
   };
 
   /** Open with the OS default handler (desktop runtime only). */

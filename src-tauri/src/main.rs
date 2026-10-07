@@ -1222,15 +1222,19 @@ async fn browser_open_live(app: tauri::AppHandle, url: String) -> Result<(), Str
     let window = app
         .get_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
-    window
+    let webview = window
         .add_child(
             WebviewBuilder::new(LABEL, WebviewUrl::External(parsed)),
-            // Off-screen until the first rect arrives; the frontend sizes
-            // it over the panel viewport immediately after creation.
+            // Off-screen placeholder rect; the frontend immediately sends the
+            // real rect. Crucially the webview starts HIDDEN: WebKitGTK
+            // clamps off-screen child positions back inside the window, so a
+            // visible placeholder used to flash at the bottom of the window
+            // until the first rect arrived.
             LogicalPosition::new(-4000.0, -4000.0),
             LogicalSize::new(800.0, 600.0),
         )
         .map_err(|e| format!("Failed to create the live browser: {}", e))?;
+    let _ = webview.hide();
     Ok(())
 }
 

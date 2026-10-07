@@ -10,7 +10,7 @@
   [![Download](https://img.shields.io/badge/Download-b4zz.com%2Fagent%2F%23download-FE8D00?style=for-the-badge)](https://b4zz.com/agent/#download)
 
   [![License: MIT](https://img.shields.io/badge/license-MIT-FCD41E)](./LICENSE)
-  [![Version 0.1.21](https://img.shields.io/badge/version-0.1.21-FE8D00)](https://github.com/buzzband/buzzagent/releases)
+  [![Version 0.1.22](https://img.shields.io/badge/version-0.1.22-FE8D00)](https://github.com/buzzband/buzzagent/releases)
   [![Core: OpenCode](https://img.shields.io/badge/core-OpenCode-1B1E23)](https://github.com/anomalyco/opencode)
   [![Zero telemetry, verified](https://img.shields.io/badge/telemetry-zero_verified-2E7D32)](./docs/telemetry-audit.md)
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useApp } from "../../store/app";
 import {
@@ -66,6 +66,36 @@ export function BrowserPanel() {
   );
   /** The resolved URL currently shown in the live iframe. */
   const [liveUrl, setLiveUrl] = useState<string | null>(null);
+  /** Live iframe load feedback: white screen ≠ broken panel — show a
+   *  loading state and, if nothing loads, a hint about the server. */
+  const [liveLoaded, setLiveLoaded] = useState(false);
+  const [liveSlow, setLiveSlow] = useState(false);
+
+  // "Still blank after a while" → the server is likely down. Iframes give
+  // no error events cross-origin, so time is the only signal we have.
+  useEffect(() => {
+    if (!liveMode || !liveUrl || liveLoaded) return;
+    setLiveSlow(false);
+    const timer = window.setTimeout(() => setLiveSlow(true), 6000);
+    return () => window.clearTimeout(timer);
+  }, [liveMode, liveUrl, liveLoaded]);
+
+  /** WebKit blocks file:// iframes from the app's http origin (and CSP
+   *  aside, cross-origin local access is denied) — a local preview would
+   *  render as a blank white frame. Tauri's asset protocol serves the same
+   *  file over http://asset.localhost: framable, and relative assets
+   *  (css/js/img) inside the page resolve through the same protocol. */
+  const frameSrc = (resolved: string): string => {
+    if (resolved.startsWith("file://")) {
+      try {
+        const raw = resolved.replace(/^file:\/\//, "");
+        return convertFileSrc(decodeURIComponent(raw));
+      } catch {
+        return resolved;
+      }
+    }
+    return resolved;
+  };
 
   // Interaction controls
   const [clickSelector, setClickSelector] = useState("");
@@ -103,7 +133,10 @@ export function BrowserPanel() {
       // Live mode: the iframe navigates by re-rendering with the new src —
       // real, interactive page in the panel. The CDP pipeline stays in sync
       // so the agent still sees what the user sees.
-      if (liveMode) setLiveUrl(resolved);
+      if (liveMode) {
+        setLiveUrl(frameSrc(resolved));
+        setLiveLoaded(false);
+      }
       const base64Png = await invoke<string>("browser_navigate", { url: resolved });
       setScreenshot(base64Png);
       await fetchLogs();
@@ -151,7 +184,10 @@ export function BrowserPanel() {
     localStorage.setItem("buzzagent.browser.live", next ? "true" : "false");
     if (next && !liveUrl) {
       const targetUrl = resolveTargetUrl(url);
-      if (targetUrl) setLiveUrl(targetUrl);
+      if (targetUrl) {
+        setLiveUrl(frameSrc(targetUrl));
+        setLiveLoaded(false);
+      }
     }
   };
 
@@ -436,13 +472,34 @@ export function BrowserPanel() {
         >
           {liveMode ? (
             liveUrl ? (
-              <iframe
-                key={liveUrl}
-                src={liveUrl}
-                title="Live browser"
-                className="h-full w-full flex-1 rounded-lg border border-[var(--accent)]/40 bg-white"
-                referrerPolicy="no-referrer"
-              />
+              <div className="relative h-full w-full flex-1 overflow-hidden rounded-lg border border-[var(--accent)]/40 bg-[var(--bg-surface)]">
+                <iframe
+                  key={liveUrl}
+                  src={liveUrl}
+                  title="Live browser"
+                  onLoad={() => setLiveLoaded(true)}
+                  className="h-full w-full rounded-lg bg-white"
+                  referrerPolicy="no-referrer"
+                />
+                {!liveLoaded && (
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[var(--bg-surface)]/95 text-center">
+                    <Loader2 size={18} className="animate-spin text-[var(--fg-muted)]" />
+                    {liveSlow ? (
+                      <>
+                        <p className="max-w-xs text-xs text-[var(--fg-secondary)]">
+                          Still blank — the page is not loading.
+                        </p>
+                        <p className="max-w-xs text-2xs text-[var(--fg-muted)]">
+                          Is the server running at this URL? Or try the
+                          <b> Window</b> button — some sites refuse embedding.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-2xs text-[var(--fg-muted)]">Loading page…</p>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="relative h-full w-full overflow-hidden rounded-lg border border-[var(--accent)]/40 bg-[var(--bg-surface)]">
                 {/* Placeholder until the first Navigate; afterwards the live

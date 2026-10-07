@@ -284,6 +284,24 @@ impl CoreSupervisor {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
+        // Own session/process group: the core (Bun) spawns LSP servers and
+        // worker subprocesses that a plain `kill` of the parent would
+        // orphan — they then pile up in the system monitor after every
+        // app close. With its own pgid we can reap the whole tree with
+        // one `kill(-pid, SIGKILL)` in stop().
+        #[cfg(unix)]
+        unsafe {
+            // tokio's Command exposes pre_exec directly (no std trait import).
+            cmd.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    // Best effort: fall back to the parent's group, where
+                    // the direct kill still applies.
+                    eprintln!("setsid failed ({}), core stays in the app's process group", std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+
         for (key, value) in no_proxy_env() {
             cmd.env(key, value);
         }
@@ -346,6 +364,25 @@ impl CoreSupervisor {
 
     pub async fn stop(&mut self) {
         if let Some(child) = self.child.as_mut() {
+            // Kill the whole process *tree*, not just the direct child:
+            // the core (Bun) spawns LSP servers and workers that must not
+            // outlive the app — they used to pile up in the system monitor
+            // after every close. With the core in its own session (see the
+            // setsid in start()), kill(-pid) reaps everything at once.
+            #[cfg(unix)]
+            if let Some(pid) = child.id() {
+                unsafe {
+                    libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+                }
+            }
+            #[cfg(windows)]
+            if let Some(pid) = child.id() {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/T", "/F", "/PID", &pid.to_string()])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
             let _ = child.kill().await;
         }
         self.child = None;

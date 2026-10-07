@@ -324,6 +324,15 @@ impl BrowserManager {
         self.config = config;
     }
 
+    /// Kill the headless Chrome instance. Chrome's kill lives in
+    /// `Browser::drop` — dropping the inner handle here runs it. Called on
+    /// app exit: Tauri's exit path never drops managed state, so without
+    /// this a closed app left Chrome running in the system monitor.
+    pub async fn shutdown(&mut self) {
+        let mut guard = self.browser.lock().await;
+        *guard = None;
+    }
+
     /// Navigate the headless browser to `url` and wait for the page to load.
     /// Remembers the URL so a dead browser can be relaunched onto the same
     /// page; a dead connection heals transparently with one retry.

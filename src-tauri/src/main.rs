@@ -1521,8 +1521,12 @@ async fn main() {
             if let tauri::RunEvent::Exit = event {
                 let state = app_handle.state::<AppState>();
                 let core = state.core.clone();
-                tauri::async_runtime::block_on(async move {
+                // Chrome's kill runs in Browser::drop — which never fires on
+                // Tauri's exit path unless we shut the manager down
+                // explicitly.
+                tauri::async_runtime::block_on(async {
                     core.lock().await.stop().await;
+                    state.browser.lock().await.shutdown().await;
                 });
             }
         });

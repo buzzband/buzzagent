@@ -99,6 +99,12 @@ ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool" \
 # ------------------------------------------------------------- publish
 echo "==> releases/"
 mkdir -p releases
+# rm first: cp onto a *running* AppImage fails with "Text file busy" — the
+# unlink swaps in a fresh inode while the old one stays alive for the
+# running process.
+rm -f "releases/BuzzAgent_${VERSION}_amd64.deb" \
+      "releases/buzzagent-${VERSION}-1.x86_64.rpm" \
+      "releases/BuzzAgent_${VERSION}_amd64.AppImage"
 cp "$DEB_FILE" "$RPM_FILE" "$APPIMAGE_FILE" releases/
 chmod +x "releases/BuzzAgent_${VERSION}_amd64.AppImage"
 ( cd releases && sha256sum \

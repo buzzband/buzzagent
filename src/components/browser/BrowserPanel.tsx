@@ -76,10 +76,15 @@ export function BrowserPanel() {
   const [installing, setInstalling] = useState(false);
   const [installMsg, setInstallMsg] = useState<string | null>(null);
   const [installHint, setInstallHint] = useState<string | null>(null);
-  /** Live mode: a real native webview is embedded over the viewport. */
+  /** Live mode: a real native webview is embedded over the viewport. ON by
+   *  default — a browser panel should show the real page, not screenshots;
+   *  the CDP screenshot pipeline feeds the agent loop regardless. */
   const [liveMode, setLiveMode] = useState(
-    () => localStorage.getItem("buzzagent.browser.live") === "true"
+    () => localStorage.getItem("buzzagent.browser.live") !== "false"
   );
+  /** Mirror for cleanup callbacks that must read the *current* value. */
+  const liveRef = useRef(liveMode);
+  liveRef.current = liveMode;
 
   // Interaction controls
   const [clickSelector, setClickSelector] = useState("");
@@ -215,18 +220,17 @@ export function BrowserPanel() {
 
   /** Leaving the Browser tab (or unmounting for any reason — including a
    *  crash screen replacing the tree) must not leave a stray webview
-   *  floating over the app. */
+   *  floating over the app. Always hide; the Rust side ignores the call
+   *  when no live webview exists. */
   useEffect(() => {
     return () => {
-      if (localStorage.getItem("buzzagent.browser.live") === "true") {
-        void invoke("browser_live_rect", {
-          x: 0,
-          y: 0,
-          width: 0,
-          height: 0,
-          visible: false,
-        }).catch(() => undefined);
-      }
+      void invoke("browser_live_rect", {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        visible: false,
+      }).catch(() => undefined);
     };
   }, []);
 
@@ -511,7 +515,19 @@ export function BrowserPanel() {
           }`}
         >
           {liveMode ? (
-            <div className="h-full w-full overflow-hidden rounded-lg border border-[var(--accent)]/40 bg-[var(--bg-surface)]" />
+            <div className="relative h-full w-full overflow-hidden rounded-lg border border-[var(--accent)]/40 bg-[var(--bg-surface)]">
+              {/* Placeholder until the first Navigate creates the live
+                  webview; afterwards the native webview covers this box. */}
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
+                <Globe size={20} className="text-[var(--fg-muted)]" />
+                <p className="text-xs text-[var(--fg-secondary)]">
+                  Enter a URL and press <b>Navigate</b> —
+                </p>
+                <p className="text-2xs text-[var(--fg-muted)]">
+                  the page renders here live, fully interactive
+                </p>
+              </div>
+            </div>
           ) : screenshot ? (
             <div className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-md">
               <img

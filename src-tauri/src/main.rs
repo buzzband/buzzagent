@@ -1199,87 +1199,29 @@ async fn browser_install_chromium() -> Result<String, String> {
     browser::install_chromium().await
 }
 
-/// Embed a REAL live webview into the main window, floating over the Browser
-/// panel's viewport. The frontend keeps it glued to the panel with
-/// `browser_live_rect` (position/size/visibility). This is a genuine native
-/// browser surface — scroll, click, type — not the CDP screenshot pipeline,
-/// which stays for the agent loop.
+/// Open a URL in a real, live browser window — a native OS webview the user
+/// can scroll, click and type in. The in-panel live view is an iframe in the
+/// main webview; this window is the escape hatch for pages that refuse to
+/// be framed (X-Frame-Options) or for a bigger browsing surface. Repeated
+/// calls navigate the same window instead of piling up new ones.
 #[tauri::command]
 async fn browser_open_live(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    use tauri::{LogicalPosition, LogicalSize, WebviewUrl};
-    use tauri::webview::WebviewBuilder;
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
     let parsed = url::Url::parse(&url).map_err(|e| format!("Invalid URL: {}", e))?;
     const LABEL: &str = "live-browser";
-    if let Some(webview) = app.get_webview(LABEL) {
-        // Reuse: navigate the existing live webview to the new URL.
+    if let Some(win) = app.get_webview_window(LABEL) {
+        // Reuse: navigate the existing live window to the new URL.
         let script = format!("window.location.replace({:?});", url);
-        webview
-            .eval(&script)
+        win.eval(&script)
             .map_err(|e| format!("Failed to navigate the live browser: {}", e))?;
-        let _ = webview.show();
+        let _ = win.set_focus();
         return Ok(());
     }
-    let window = app
-        .get_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    let webview = window
-        .add_child(
-            WebviewBuilder::new(LABEL, WebviewUrl::External(parsed)),
-            // Off-screen placeholder rect; the frontend immediately sends the
-            // real rect. Crucially the webview starts HIDDEN: WebKitGTK
-            // clamps off-screen child positions back inside the window, so a
-            // visible placeholder used to flash at the bottom of the window
-            // until the first rect arrived.
-            LogicalPosition::new(-4000.0, -4000.0),
-            LogicalSize::new(800.0, 600.0),
-        )
-        .map_err(|e| format!("Failed to create the live browser: {}", e))?;
-    let _ = webview.hide();
-    Ok(())
-}
-
-/// Position, size and show/hide the embedded live browser webview so it
-/// tracks the Browser panel's viewport. Coordinates are window logical
-/// pixels; the frontend already compensated for UI zoom.
-#[tauri::command]
-async fn browser_live_rect(
-    app: tauri::AppHandle,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-    visible: bool,
-) -> Result<(), String> {
-    use tauri::{LogicalPosition, LogicalSize};
-    let Some(webview) = app.get_webview("live-browser") else {
-        return Ok(());
-    };
-    if width < 1.0 || height < 1.0 {
-        let _ = webview.hide();
-        return Ok(());
-    }
-    webview
-        .set_position(LogicalPosition::new(x.max(0.0), y.max(0.0)))
-        .map_err(|e| format!("Failed to position the live browser: {}", e))?;
-    webview
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|e| format!("Failed to size the live browser: {}", e))?;
-    if visible {
-        let _ = webview.show();
-    } else {
-        let _ = webview.hide();
-    }
-    Ok(())
-}
-
-/// Destroy the embedded live browser webview (Live mode turned off).
-#[tauri::command]
-async fn browser_live_close(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(webview) = app.get_webview("live-browser") {
-        webview
-            .close()
-            .map_err(|e| format!("Failed to close the live browser: {}", e))?;
-    }
+    WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External(parsed))
+        .title("BuzzAgent — Live Browser")
+        .inner_size(1280.0, 860.0)
+        .build()
+        .map_err(|e| format!("Failed to open the live browser window: {}", e))?;
     Ok(())
 }
 
@@ -1509,8 +1451,6 @@ async fn main() {
             browser_install_hint,
             browser_install_chromium,
             browser_open_live,
-            browser_live_rect,
-            browser_live_close,
             browser_navigate,
             browser_screenshot,
             browser_click,

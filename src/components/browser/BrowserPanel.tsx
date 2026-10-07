@@ -18,7 +18,6 @@ import {
   Type,
 } from "lucide-react";
 import { copyText } from "../ErrorBoundary";
-import { ZOOM_LEVELS } from "../../lib/zoom";
 
 interface ConsoleEntry {
   level: string;
@@ -38,28 +37,10 @@ interface ChangedFile {
 const VIEWABLE = [".html", ".htm", ".svg"];
 
 export function BrowserPanel() {
-  const {
-    projectDir,
-    busy,
-    layout,
-    zoomIndex,
-    settingsOpen,
-    paletteOpen,
-    helpModalOpen,
-  } = useApp(
-    useShallow((s) => ({
-      projectDir: s.projectDir,
-      busy: s.busy,
-      layout: s.layout,
-      zoomIndex: s.zoomIndex,
-      settingsOpen: s.settingsOpen,
-      paletteOpen: s.paletteOpen,
-      helpModalOpen: s.helpModalOpen,
-    }))
+  const { projectDir, busy } = useApp(
+    useShallow((s) => ({ projectDir: s.projectDir, busy: s.busy }))
   );
   const rootRef = useRef<HTMLDivElement>(null);
-  /** The viewport box the embedded live webview is glued to. */
-  const viewportRef = useRef<HTMLDivElement>(null);
   const [toolsOpen, setToolsOpen] = useState(true);
   const userToggledTools = useRef(false);
   const [url, setUrl] = useState("http://localhost:3000");
@@ -76,15 +57,15 @@ export function BrowserPanel() {
   const [installing, setInstalling] = useState(false);
   const [installMsg, setInstallMsg] = useState<string | null>(null);
   const [installHint, setInstallHint] = useState<string | null>(null);
-  /** Live mode: a real native webview is embedded over the viewport. ON by
-   *  default — a browser panel should show the real page, not screenshots;
-   *  the CDP screenshot pipeline feeds the agent loop regardless. */
+  /** Live mode: the page renders as a real, interactive iframe in the panel.
+   *  ON by default — a browser panel should show the real page, not
+   *  screenshots; the CDP screenshot pipeline feeds the agent loop
+   *  regardless. */
   const [liveMode, setLiveMode] = useState(
     () => localStorage.getItem("buzzagent.browser.live") !== "false"
   );
-  /** Mirror for cleanup callbacks that must read the *current* value. */
-  const liveRef = useRef(liveMode);
-  liveRef.current = liveMode;
+  /** The resolved URL currently shown in the live iframe. */
+  const [liveUrl, setLiveUrl] = useState<string | null>(null);
 
   // Interaction controls
   const [clickSelector, setClickSelector] = useState("");
@@ -119,16 +100,10 @@ export function BrowserPanel() {
     setLoading(true);
     setError(null);
     try {
-      // In live mode the real webview navigates too; the CDP pipeline stays
-      // in sync so the agent still sees what the user sees.
-      if (liveMode) {
-        await invoke("browser_open_live", { url: resolved });
-        // Creation/navigation changes no React deps — without an explicit
-        // push the webview sits at its placeholder position (which
-        // WebKitGTK clamps to the window bottom) instead of the panel.
-        pushLiveRect(true);
-        requestAnimationFrame(() => pushLiveRect(true));
-      }
+      // Live mode: the iframe navigates by re-rendering with the new src —
+      // real, interactive page in the panel. The CDP pipeline stays in sync
+      // so the agent still sees what the user sees.
+      if (liveMode) setLiveUrl(resolved);
       const base64Png = await invoke<string>("browser_navigate", { url: resolved });
       setScreenshot(base64Png);
       await fetchLogs();
@@ -167,100 +142,28 @@ export function BrowserPanel() {
     return targetUrl;
   };
 
-  /**
-   * Push the viewport's rect to the embedded live webview so it stays glued
-   * to the panel. getBoundingClientRect returns CSS pixels inside a zoomed
-   * webview; the native layer wants window logical pixels — CSS × zoom.
-   * `visible` is false whenever a global overlay (settings, palette, help)
-   * is open, because the child webview floats ABOVE the app's own UI.
-   */
-  const pushLiveRect = useCallback(
-    (visible: boolean) => {
-      const el = viewportRef.current;
-      if (!el) return;
-      const zoom = ZOOM_LEVELS[zoomIndex] ?? 1;
-      const rect = el.getBoundingClientRect();
-      void invoke("browser_live_rect", {
-        x: Math.round(rect.left * zoom),
-        y: Math.round(rect.top * zoom),
-        width: Math.round(rect.width * zoom),
-        height: Math.round(rect.height * zoom),
-        visible,
-      }).catch(() => undefined);
-    },
-    [zoomIndex]
-  );
-
-  /** Anything that can move or resize the panel re-glues the live webview:
-   *  the panel's own box (ResizeObserver), the window, layout changes
-   *  (split panes, area toggles, active tab) and zoom level. */
-  useEffect(() => {
-    if (!liveMode) return;
-    const blocked = settingsOpen || paletteOpen || helpModalOpen;
-    pushLiveRect(!blocked);
-  }, [
-    liveMode,
-    layout,
-    zoomIndex,
-    settingsOpen,
-    paletteOpen,
-    helpModalOpen,
-    toolsOpen,
-    pushLiveRect,
-  ]);
-
-  useEffect(() => {
-    if (!liveMode) return;
-    const el = viewportRef.current;
-    if (!el) return;
-    const onResize = () => pushLiveRect(true);
-    const observer = new ResizeObserver(() => pushLiveRect(true));
-    observer.observe(el);
-    window.addEventListener("resize", onResize);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", onResize);
-    };
-  }, [liveMode, pushLiveRect]);
-
-  /** Leaving the Browser tab (or unmounting for any reason — including a
-   *  crash screen replacing the tree) must not leave a stray webview
-   *  floating over the app. Always hide; the Rust side ignores the call
-   *  when no live webview exists. */
-  useEffect(() => {
-    return () => {
-      void invoke("browser_live_rect", {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-        visible: false,
-      }).catch(() => undefined);
-    };
-  }, []);
-
-  /** Toggle live mode: ON embeds a real native webview over the viewport;
-   *  OFF destroys it and returns to the screenshot pipeline. */
-  const toggleLive = async () => {
+  /** Toggle live mode: ON renders the page as a real iframe in the panel;
+   *  OFF returns to the CDP screenshot preview. When turning ON with no
+   *  page yet, load the URL bar's current target. */
+  const toggleLive = () => {
     const next = !liveMode;
-    if (next) {
+    setLiveMode(next);
+    localStorage.setItem("buzzagent.browser.live", next ? "true" : "false");
+    if (next && !liveUrl) {
       const targetUrl = resolveTargetUrl(url);
-      if (!targetUrl) return;
-      try {
-        await invoke("browser_open_live", { url: targetUrl });
-        setLiveMode(true);
-        localStorage.setItem("buzzagent.browser.live", "true");
-        // Creation changes no React deps — push the rect explicitly or the
-        // just-created webview stays at its (clamped) placeholder position.
-        pushLiveRect(true);
-        requestAnimationFrame(() => pushLiveRect(true));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    } else {
-      setLiveMode(false);
-      localStorage.setItem("buzzagent.browser.live", "false");
-      void invoke("browser_live_close").catch(() => undefined);
+      if (targetUrl) setLiveUrl(targetUrl);
+    }
+  };
+
+  /** Open the current URL in a real separate browser window — for pages
+   *  that refuse to be framed (X-Frame-Options) or a bigger surface. */
+  const openLiveWindow = async () => {
+    const targetUrl = resolveTargetUrl(url) ?? liveUrl;
+    if (!targetUrl) return;
+    try {
+      await invoke("browser_open_live", { url: targetUrl });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -474,11 +377,11 @@ export function BrowserPanel() {
 
         <button
           type="button"
-          onClick={() => void toggleLive()}
+          onClick={toggleLive}
           title={
             liveMode
-              ? "Turn off the live browser (back to screenshot preview)"
-              : "Browse this URL live in a real embedded browser"
+              ? "Turn off the live page (back to screenshot preview)"
+              : "Show the page live right here in the panel"
           }
           aria-pressed={liveMode}
           className={`flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
@@ -489,6 +392,16 @@ export function BrowserPanel() {
         >
           <ExternalLink size={12} />
           {liveMode ? "Live on" : "Live"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => void openLiveWindow()}
+          title="Open this URL in a separate real browser window (for sites that refuse embedding)"
+          className="flex items-center gap-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+        >
+          <Globe size={12} />
+          Window
         </button>
       </div>
 
@@ -512,11 +425,9 @@ export function BrowserPanel() {
 
       {/* Main Viewport & Tools */}
       <div className="flex min-h-0 flex-1">
-        {/* Left/Center: Viewport preview. In live mode this box is the
-            anchor rect for the embedded native webview — the webview floats
-            exactly over it. */}
+        {/* Left/Center: the live page (a real iframe) or the CDP screenshot
+            preview. */}
         <div
-          ref={viewportRef}
           className={`flex min-w-0 flex-1 p-3 ${
             liveMode
               ? "flex-col overflow-hidden"
@@ -524,19 +435,29 @@ export function BrowserPanel() {
           }`}
         >
           {liveMode ? (
-            <div className="relative h-full w-full overflow-hidden rounded-lg border border-[var(--accent)]/40 bg-[var(--bg-surface)]">
-              {/* Placeholder until the first Navigate creates the live
-                  webview; afterwards the native webview covers this box. */}
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
-                <Globe size={20} className="text-[var(--fg-muted)]" />
-                <p className="text-xs text-[var(--fg-secondary)]">
-                  Enter a URL and press <b>Navigate</b> —
-                </p>
-                <p className="text-2xs text-[var(--fg-muted)]">
-                  the page renders here live, fully interactive
-                </p>
+            liveUrl ? (
+              <iframe
+                key={liveUrl}
+                src={liveUrl}
+                title="Live browser"
+                className="h-full w-full flex-1 rounded-lg border border-[var(--accent)]/40 bg-white"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="relative h-full w-full overflow-hidden rounded-lg border border-[var(--accent)]/40 bg-[var(--bg-surface)]">
+                {/* Placeholder until the first Navigate; afterwards the live
+                    iframe fills this box. */}
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
+                  <Globe size={20} className="text-[var(--fg-muted)]" />
+                  <p className="text-xs text-[var(--fg-secondary)]">
+                    Enter a URL and press <b>Navigate</b> —
+                  </p>
+                  <p className="text-2xs text-[var(--fg-muted)]">
+                    the page renders here live, fully interactive
+                  </p>
+                </div>
               </div>
-            </div>
+            )
           ) : screenshot ? (
             <div className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-md">
               <img

@@ -39,10 +39,57 @@ const EXT_LANG: Record<string, string> = {
   sql: "sql",
   go: "go",
   toml: "toml",
+  // PHP (XAMPP/LAMP shops), C/C++, Java and friends — real-world files the
+  // editor gets asked to open. Grammars resolve through LANG_LOADERS.
+  php: "php",
+  php3: "php",
+  php4: "php",
+  php5: "php",
+  phtml: "php",
+  inc: "php",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  cc: "cpp",
+  cxx: "cpp",
+  hpp: "cpp",
+  hh: "cpp",
+  java: "java",
+  xml: "xml",
+  svg: "xml",
+  ini: "ini",
+  cfg: "ini",
+  conf: "ini",
+  env: "ini",
+  scss: "scss",
+  less: "less",
+  vue: "vue",
+  rb: "ruby",
+  swift: "swift",
+  kt: "kotlin",
+  kts: "kotlin",
+  dart: "dart",
+  lua: "lua",
+  pl: "perl",
+  pm: "perl",
+  graphql: "graphql",
+  gql: "graphql",
+  ps1: "powershell",
+  bat: "bat",
+  cmd: "bat",
+  cmake: "cmake",
+  "CMakeLists.txt": "cmake",
+  nginx: "nginx",
+  "nginx.conf": "nginx",
+  dockerfile: "dockerfile",
+  Dockerfile: "dockerfile",
 };
 
 function languageForPath(path: string): string {
   const name = path.split("/").pop() ?? path;
+  // Well-known whole filenames first (Dockerfile, CMakeLists.txt…), then
+  // the bare extension.
+  if (EXT_LANG[name]) return EXT_LANG[name];
   const dot = name.lastIndexOf(".");
   const ext = dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
   return EXT_LANG[ext] ?? "text";

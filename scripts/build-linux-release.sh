@@ -63,9 +63,10 @@ RPM_FILE="${RPM_ROOT}/x86_64/buzzagent-${VERSION}-1.x86_64.rpm"
 echo "==> AppImage (appimagetool + type-2 runtime)"
 TOOLS=/tmp/appimage
 mkdir -p "$TOOLS"
-[[ -x "$TOOLS/appimagetool" ]] || curl -fsSL -o "$TOOLS/appimagetool" \
+# --retry-all-errors: GitHub's CDN intermittently drops TLS mid-transfer.
+[[ -x "$TOOLS/appimagetool" ]] || curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 -o "$TOOLS/appimagetool" \
   https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-[[ -f "$TOOLS/runtime-x86_64" ]] || curl -fsSL -o "$TOOLS/runtime-x86_64" \
+[[ -f "$TOOLS/runtime-x86_64" ]] || curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 -o "$TOOLS/runtime-x86_64" \
   https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
 chmod +x "$TOOLS/appimagetool"
 

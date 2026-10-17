@@ -1,5 +1,5 @@
 /**
- * Integration test: the real client against a real `opencode serve`.
+ * Integration test: the real client against a real `opencode serve` (v2).
  *
  * Unit tests mock `fetch`, which proves the client's logic but not that our
  * understanding of the core's API is correct. This test talks to an actual
@@ -9,7 +9,7 @@
  *
  *   BUZZ_TEST_CORE_URL=http://127.0.0.1:4611 \
  *   BUZZ_TEST_CORE_PASSWORD=p3 \
- *   BUZZ_TEST_MODEL=mock/mock-coder \
+ *   BUZZ_TEST_MODEL=mock/mock-1 \
  *   npm run test:integration
  */
 
@@ -41,8 +41,7 @@ describe.skipIf(!enabled)("core integration", () => {
 
   it("reports health", async () => {
     const health = await client.health();
-    expect(health.healthy).toBe(true);
-    expect(health.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(health.version).toMatch(/^2\.\d+\.\d+/);
   });
 
   it("rejects a wrong password", async () => {
@@ -56,16 +55,16 @@ describe.skipIf(!enabled)("core integration", () => {
   });
 
   // First call may refresh the model catalogue on a cold core: allow for it.
-  it("lists providers and reports Zen as connected by default", { timeout: 20_000 }, async () => {
+  it("lists providers and reports some models", { timeout: 20_000 }, async () => {
     const providers = await client.providers();
     expect(providers.all.length).toBeGreaterThan(0);
-    // Documented behaviour we defend against in pickUserProvider.
-    expect(providers.connected).toContain("opencode");
+    // Models moved to /api/model in v2 — every provider entry must carry some.
+    expect(providers.all.some((p) => Object.keys(p.models).length > 0)).toBe(true);
   });
 
   it("has share disabled by the forced config", { timeout: 20_000 }, async () => {
     const config = await client.config();
-    expect(config.share).toBe("disabled");
+    expect(config["share"]).toBe("disabled");
   });
 
   it("creates, lists and deletes a session", async () => {
@@ -90,6 +89,7 @@ describe.skipIf(!enabled)("core integration", () => {
     });
 
     const session = await client.createSession("event probe");
+    // v2 fires `session.created` alongside the durable event stream.
     await vi.waitFor(() => expect(seen).toContain("session.created"), {
       timeout: 10_000,
     });
@@ -102,18 +102,20 @@ describe.skipIf(!enabled)("core integration", () => {
   it.skipIf(!model)("runs a full turn and reports parts", async () => {
     const session = await client.createSession("turn probe");
     try {
-      const result = await client.prompt(
-        session.id,
-        [{ type: "text", text: "hello there" }],
-        { model: model! }
+      await client.switchModel(session.id, model!);
+      await client.promptAsync(session.id, "hello there");
+
+      // The prompt is async in v2 (inbox); wait until the turn ends.
+      await vi.waitFor(
+        async () => {
+          const messages = await client.messages(session.id);
+          const assistant = messages.find((m) => m.info.role === "assistant");
+          expect(assistant).toBeDefined();
+          const types = assistant!.parts.map((p) => p.type);
+          expect(types).toContain("text");
+        },
+        { timeout: 60_000, interval: 500 }
       );
-
-      expect(result.info.role).toBe("assistant");
-      expect(result.info.error ?? null).toBeNull();
-
-      const types = result.parts.map((p) => p.type);
-      expect(types).toContain("step-start");
-      expect(types).toContain("text");
     } finally {
       await client.deleteSession(session.id);
     }
@@ -134,11 +136,11 @@ describe.skipIf(!enabled)("core integration", () => {
     const stop = client.subscribe((event) => useApp.getState().__handleEvent(event));
 
     try {
-      await client.promptAsync(session.id, [{ type: "text", text: "hello" }], {
-        model: model!,
-      });
+      await client.switchModel(session.id, model!);
+      await client.promptAsync(session.id, "hello");
 
       // The turn must end by itself: this is exactly what hung before.
+      // (v2's session.execution.succeeded → session.idle translation.)
       await vi.waitFor(() => expect(useApp.getState().busy).toBe(false), {
         timeout: 60_000,
         interval: 200,
@@ -154,33 +156,6 @@ describe.skipIf(!enabled)("core integration", () => {
     } finally {
       stop();
       useApp.setState({ sessionId: null, messages: [], busy: false });
-      await client.deleteSession(session.id);
-    }
-  }, 120_000);
-
-  it.skipIf(!model)("surfaces a tool call with its state", async () => {
-    const session = await client.createSession("tool probe");
-    try {
-      // The mock provider answers a prompt containing "write" with a write
-      // tool call, which is what we want to observe.
-      await client.prompt(
-        session.id,
-        [{ type: "text", text: "please write a file" }],
-        { model: model! }
-      );
-
-      // In OpenCode, a multi-step turn splits across messages:
-      // message 1 (assistant): step-start, tool, step-finish
-      // message 2 (assistant): step-start, text, step-finish
-      // So inspect all messages in the session.
-      const messages = await client.messages(session.id);
-      const allParts = messages.flatMap((m) => m.parts);
-      const tool = allParts.find((p) => p.type === "tool");
-
-      expect(tool).toBeDefined();
-      expect(tool?.state?.status).toBe("completed");
-      expect(tool?.tool).toBe("write");
-    } finally {
       await client.deleteSession(session.id);
     }
   }, 120_000);

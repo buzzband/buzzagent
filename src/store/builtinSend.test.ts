@@ -14,7 +14,9 @@ describe("send() builtin routing", () => {
       commands: [],
       sessionId: "s1",
       client: {
-        summarize: vi.fn(async () => true),
+        compact: vi.fn(async () => true),
+        switchModel: vi.fn(async () => undefined),
+        switchAgent: vi.fn(async () => undefined),
         revert: vi.fn(async () => ({})),
         unrevert: vi.fn(async () => ({})),
         initSession: vi.fn(async () => true),
@@ -29,7 +31,7 @@ describe("send() builtin routing", () => {
   it("runs /compact through the core without sending a chat message", async () => {
     const client = useApp.getState().client!;
     await useApp.getState().send("/compact");
-    expect(client.summarize).toHaveBeenCalledWith("s1", { providerID: "p", modelID: "m" });
+    expect(client.compact).toHaveBeenCalledWith("s1");
   });
 
   it("project commands shadow built-ins with the same name", async () => {
@@ -43,7 +45,7 @@ describe("send() builtin routing", () => {
     try {
       await useApp.getState().send("/compact do it");
       expect(runSlash).toHaveBeenCalled();
-      expect(useApp.getState().client!.summarize).not.toHaveBeenCalled();
+      expect(useApp.getState().client!.compact).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();
     }
@@ -51,8 +53,10 @@ describe("send() builtin routing", () => {
 
   it("unknown slash tokens pass through as plain text", async () => {
     const promptAsync = vi.fn(async () => ({}));
+    const switchModel = vi.fn(async () => undefined);
+    const switchAgent = vi.fn(async () => undefined);
     useApp.setState({
-      client: { promptAsync } as never,
+      client: { promptAsync, switchModel, switchAgent } as never,
     });
     await useApp.getState().send("/notacommand hello");
     expect(promptAsync).toHaveBeenCalled();

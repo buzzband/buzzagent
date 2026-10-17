@@ -52,15 +52,15 @@ describe("CoreClient", () => {
   });
 
   it("normalises the base URL and sends basic auth", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ healthy: true, version: "1.18.30" }));
+    fetchMock.mockResolvedValue(jsonResponse({ version: "2.0.32", pid: 1, urls: [], paths: {}, capabilities: {} }));
     const client = new CoreClient(connection);
 
     const health = await client.health();
 
-    expect(health.version).toBe("1.18.30");
+    expect(health.version).toBe("2.0.32");
     const [url, init] = fetchMock.mock.calls[0];
     // Trailing slash trimmed, so paths do not double up.
-    expect(url).toBe("http://127.0.0.1:4096/global/health");
+    expect(url).toBe("http://127.0.0.1:4096/api/info");
     expect((init.headers as Record<string, string>).Authorization).toBe(
       `Basic ${btoa("opencode:secret")}`
     );
@@ -73,12 +73,12 @@ describe("CoreClient", () => {
 
     await client.sessionDiff("ses_1", undefined);
     expect(fetchMock.mock.calls[0][0]).toBe(
-      "http://127.0.0.1:4096/session/ses_1/diff"
+      "http://127.0.0.1:4096/api/session/ses_1/diff"
     );
 
     await client.sessionDiff("ses_1", "msg_9");
     expect(fetchMock.mock.calls[1][0]).toBe(
-      "http://127.0.0.1:4096/session/ses_1/diff?messageID=msg_9"
+      "http://127.0.0.1:4096/api/session/ses_1/diff?messageID=msg_9"
     );
   });
 
@@ -103,41 +103,49 @@ describe("CoreClient", () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     const client = new CoreClient(connection);
 
-    await expect(
-      client.promptAsync("ses_1", [{ type: "text", text: "hi" }])
-    ).resolves.toBeUndefined();
+    await expect(client.promptAsync("ses_1", "hi")).resolves.toBeUndefined();
   });
 
-  it("sends prompt payloads with model and parts", async () => {
+  it("sends the prompt as plain text (v2 inbox shape)", async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     const client = new CoreClient(connection);
 
-    await client.promptAsync("ses_2", [{ type: "text", text: "hello" }], {
-      model: { providerID: "openai", modelID: "gpt-4o" },
-      agent: "build",
-    });
+    await client.promptAsync("ses_2", "hello");
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(body.model).toEqual({ providerID: "openai", modelID: "gpt-4o" });
-    expect(body.parts[0].text).toBe("hello");
-    expect(body.agent).toBe("build");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/api/session/ses_2/prompt");
+    const body = JSON.parse(init.body as string);
+    expect(body.text).toBe("hello");
+    expect(body.files).toEqual([]);
   });
 
-  it("sends the reasoning variant as a TOP-LEVEL prompt field", async () => {
+  it("switches the session model via the dedicated endpoint (v2)", async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     const client = new CoreClient(connection);
 
-    await client.promptAsync("ses_3", [{ type: "text", text: "think hard" }], {
-      model: { providerID: "site", modelID: "big" },
+    await client.switchModel("ses_3", {
+      providerID: "site",
+      modelID: "big",
       variant: "high",
     });
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(body.variant).toBe("high");
-    // Must not be nested under model — the core reads variant at body level.
-    expect(body.model).toEqual({ providerID: "site", modelID: "big" });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/api/session/ses_3/model");
+    const body = JSON.parse(init.body as string);
+    expect(body.model).toEqual({ id: "big", providerID: "site", variant: "high" });
   });
 
+  it("interrupts and compacts via the v2 endpoints", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    const client = new CoreClient(connection);
+
+    await client.abort("ses_4");
+    await client.compact("ses_4");
+
+    const urls = (fetchMock.mock.calls as [string, RequestInit][]).map(([u]) => u);
+    expect(urls[0]).toContain("/api/session/ses_4/interrupt");
+    expect(urls[1]).toContain("/api/session/ses_4/compact");
+  });
   it("parses SSE frames split across chunk boundaries", async () => {
     // The first event is deliberately cut mid-JSON to prove buffering works.
     fetchMock.mockResolvedValue(
@@ -209,18 +217,18 @@ describe("CoreClient", () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
     vi.mocked(invoke).mockResolvedValue({
       status: 200,
-      bodyBase64: btoa(JSON.stringify({ healthy: true, version: "1.18.30" })),
+      bodyBase64: btoa(JSON.stringify({ version: "2.0.32", pid: 1, urls: [], paths: {}, capabilities: {} })),
       contentType: "application/json",
     });
 
     const client = new CoreClient(connection);
     const health = await client.health();
 
-    expect(health.version).toBe("1.18.30");
+    expect(health.version).toBe("2.0.32");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("core_http", {
       method: "GET",
-      path: "http://127.0.0.1:4096/global/health",
+      path: "http://127.0.0.1:4096/api/info",
       body: null,
     });
 

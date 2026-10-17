@@ -1,9 +1,13 @@
 /**
- * Types mirroring the OpenCode core API (pinned 1.18.30).
+ * Types for the OpenCode core API.
  *
- * These are hand-written on purpose for the subset we consume, and follow the
- * shapes verified in `docs/core-api-notes.md`. Do not invent fields: if the UI
- * needs something new, check the live `/doc` spec first.
+ * OpenCode v2 (`opencode serve`, pinned 2.0.32) wraps every list response in
+ * a `{ location, data }` envelope, embeds message parts inline in
+ * `content`, and names the model fields `Model.Ref = { id, providerID,
+ * variant }`. The types below model the subset we consume; the client layer
+ * adapts them into the internal shapes the UI was built on
+ * (`MessageWithParts`, `Part`, `CoreEvent`) so the store is insulated from
+ * wire churn.
  */
 
 export interface CoreConnection {
@@ -24,9 +28,13 @@ export interface CoreStatus {
   log: string[];
 }
 
+/** `GET /api/info` — v2 readiness + identity. */
 export interface Health {
-  healthy: boolean;
   version: string;
+  pid: number;
+  urls: string[];
+  paths: Record<string, string>;
+  capabilities: Record<string, boolean>;
 }
 
 export interface Project {
@@ -55,9 +63,11 @@ export interface Tokens {
   cache: { read: number; write: number };
 }
 
+/** v2 `Model.Ref`. The UI's legacy `modelID` maps to wire `id`. */
 export interface ModelRef {
   providerID: string;
   modelID: string;
+  variant?: string;
 }
 
 export interface ProviderModel {
@@ -77,25 +87,40 @@ export interface Provider {
   models: Record<string, ProviderModel>;
 }
 
+/** Raw v2 provider entry (before grouping into the internal shape). */
+export interface ProviderModelInfo {
+  id: string;
+  modelID?: string;
+  providerID: string;
+  name?: string;
+  reasoning?: boolean;
+  attachment?: boolean;
+  limit?: { context?: number; output?: number };
+  cost?: unknown;
+  settings?: Record<string, unknown>;
+  package?: string;
+}
+
 export interface ProviderList {
   all: Provider[];
   default: Record<string, string>;
   connected: string[];
 }
 
-/** One entry of `GET /provider/auth`, describing how to authenticate. */
+/** One auth method of a v2 integration. */
 export interface ProviderAuthMethod {
-  type: string;
+  type: "key" | "env" | "oauth" | "command" | string;
   label?: string;
+  names?: string[];
 }
 
-export type MessageRole = "user" | "assistant";
+export type MessageRole = "user" | "assistant" | string;
 
 export interface MessageInfo {
   id: string;
   sessionID: string;
   role: MessageRole;
-  time?: { created: number; completed?: number };
+  time?: { created: number; completed?: number; streamed?: number };
   cost?: number;
   tokens?: Tokens;
   modelID?: string;
@@ -104,13 +129,13 @@ export interface MessageInfo {
 }
 
 /**
- * A message part. The core emits a discriminated union; we model the members
- * the UI renders and keep unknown members visible rather than dropping them.
+ * A message part (internal shape; adapted from v2 inline content).
  */
 export interface Part {
   id?: string;
   messageID?: string;
   sessionID?: string;
+  ordinal?: number;
   type:
     | "text"
     | "reasoning"
@@ -136,7 +161,7 @@ export interface Part {
   cost?: number;
 }
 
-export type ToolStatus = "pending" | "running" | "completed" | "error";
+export type ToolStatus = "pending" | "streaming" | "running" | "completed" | "error";
 
 export interface ToolState {
   status: ToolStatus;
@@ -216,7 +241,11 @@ export interface Todo {
   priority?: string;
 }
 
-/** SSE envelope: `{ id, type, properties }`. */
+/**
+ * SSE event, internal shape. v2 sends `{ id, created, type, data, location,
+ * durable }`; the client adapter copies `data` into `properties` so the
+ * store's event handling keeps a single shape.
+ */
 export interface CoreEvent {
   id?: string;
   type: string;

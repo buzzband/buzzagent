@@ -26,7 +26,7 @@ use tokio::process::{Child, Command};
 
 /// Version of the core this build is developed and tested against.
 /// Bump this and regenerate the SDK together.
-pub const PINNED_CORE_VERSION: &str = "1.18.30";
+pub const PINNED_CORE_VERSION: &str = "2.0.32";
 
 /// What the frontend needs in order to reach the core itself.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,8 +87,8 @@ struct ForcedConfig {
     schema: &'static str,
     /// Never upload conversations.
     share: &'static str,
-    /// No self-update of a binary we pin and ship.
-    autoupdate: bool,
+    /// No self-update of a binary we pin and ship (v2 key, was `autoupdate`).
+    update: &'static str,
 }
 
 impl Default for ForcedConfig {
@@ -96,7 +96,7 @@ impl Default for ForcedConfig {
         ForcedConfig {
             schema: "https://opencode.ai/config.json",
             share: "disabled",
-            autoupdate: false,
+            update: "disable",
         }
     }
 }
@@ -143,10 +143,92 @@ fn merge_settings(dst: &mut serde_json::Value, patch: &serde_json::Value) {
 /// Keys BuzzAgent owns outright: whatever the UI or a raw edit says, these are
 /// re-applied on every write. `experimental.openTelemetry` is the core's only
 /// telemetry surface and stays off with the rest.
-fn force_privacy_keys(value: &mut serde_json::Value) {
-    value["$schema"] = serde_json::json!("https://opencode.ai/config.json");
+/// One-way v1 → v2 config migration, applied in place. Existing installs
+/// carry a v1-shaped sandbox config (`provider` with `options`, `agent`
+/// with `prompt`, `autoupdate`); the v2 core ignores those keys entirely.
+/// Rules:
+///   * `provider` (map)  → `providers`, each entry's `options` → `settings`,
+///     `npm: "@ai-sdk/openai-compatible"` → the v2 package name;
+///   * `agent` (map)     → `agents`, each entry's `prompt` → `system`;
+///   * `autoupdate`      → dropped (`force_privacy_keys` writes v2's
+///     `update: "disable"` on every write anyway).
+/// Idempotent: a v2 document passes through untouched.
+pub(crate) fn migrate_v1_config(value: &mut serde_json::Value) {
+    use serde_json::Value;
+
+    // provider → providers (options → settings, npm → package)
+    if let Some(v1_providers) = value.get_mut("provider").and_then(|p| p.take().as_object().cloned())
+    {
+        let v2_providers = value
+            .as_object_mut()
+            .map(|m| m.entry("providers").or_insert_with(|| Value::Object(Default::default())));
+        if let Some(Value::Object(map)) = v2_providers {
+            for (id, mut def) in v1_providers {
+                if !def.is_object() {
+                    continue; // broken entry — skip rather than corrupt
+                }
+                // options → settings (clone the map, then re-insert)
+                if let Some(opts) = def.get("options").and_then(|o| o.as_object()).cloned() {
+                    if let Some(obj) = def.as_object_mut() {
+                        let settings = obj
+                            .entry("settings")
+                            .or_insert_with(|| Value::Object(Default::default()));
+                        if let Some(settings) = settings.as_object_mut() {
+                            for (k, v) in opts {
+                                settings.insert(k, v);
+                            }
+                        }
+                        obj.remove("options");
+                    }
+                }
+                // v1 shipped the bare npm name; v2 resolves its own package.
+                if def.get("npm").and_then(|n| n.as_str()) == Some("@ai-sdk/openai-compatible") {
+                    if let Some(obj) = def.as_object_mut() {
+                        obj.remove("npm");
+                        obj.insert(
+                            "package".into(),
+                            Value::String("@opencode/ai/providers/openai-compatible".into()),
+                        );
+                    }
+                }
+                map.insert(id, def);
+            }
+        }
+        value.as_object_mut().map(|m| m.remove("provider"));
+    }
+
+    // agent → agents (prompt → system)
+    if let Some(v1_agents) = value.get_mut("agent").and_then(|a| a.take().as_object().cloned()) {
+        let v2_agents = value
+            .as_object_mut()
+            .map(|m| m.entry("agents").or_insert_with(|| Value::Object(Default::default())));
+        if let Some(Value::Object(map)) = v2_agents {
+            for (id, mut def) in v1_agents {
+                if !def.is_object() {
+                    continue;
+                }
+                if let Some(prompt) = def.get("prompt").cloned() {
+                    def.as_object_mut()
+                        .map(|m| m.insert("system".to_string(), prompt));
+                    def.as_object_mut().map(|m| m.remove("prompt"));
+                }
+                map.insert(id, def);
+            }
+        }
+        value.as_object_mut().map(|m| m.remove("agent"));
+    }
+
+    // autoupdate → (gone; `update: "disable"` is re-forced on every write)
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("autoupdate");
+    }
+}
+
+fn force_privacy_keys(value: &mut serde_json::Value) {    value["$schema"] = serde_json::json!("https://opencode.ai/config.json");
     value["share"] = serde_json::json!("disabled");
-    value["autoupdate"] = serde_json::json!(false);
+    // v2 renamed `autoupdate: false` → `update: "disable"`.
+    value["update"] = serde_json::json!("disable");
+    value.as_object_mut().map(|m| m.remove("autoupdate"));
     if !value
         .get("experimental")
         .map(|v| v.is_object())
@@ -449,38 +531,38 @@ impl CoreSupervisor {
         let mut imported_auth = 0usize;
         let mut imported_config_keys = 0usize;
 
-        // 1. auth.json — merge per-provider credentials, don't clobber ours.
+        // 1. v1 personal auth.json — merge per-provider credentials into the
+        // v2 location (`providers.{id}.settings.apiKey`), never clobbering a
+        // key we already hold. The v2 core does not read auth.json at all, so
+        // this is the migration path for users coming from the v1 CLI.
         let auth_path = home.join(".local/share/opencode/auth.json");
         if auth_path.is_file() {
             let personal: serde_json::Value =
                 serde_json::from_str(&std::fs::read_to_string(&auth_path).unwrap_or_default())
                     .map_err(|e| format!("Personal auth.json is not valid JSON: {}", e))?;
-
-            let sandbox = self.data_dir.join("core/data/opencode/auth.json");
-            if let Some(parent) = sandbox.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            let mut merged: serde_json::Value = if sandbox.is_file() {
-                serde_json::from_str(&std::fs::read_to_string(&sandbox).unwrap_or_default())
-                    .unwrap_or_else(|_| serde_json::json!({}))
-            } else {
-                serde_json::json!({})
-            };
-            if let (Some(src), Some(dst)) = (personal.as_object(), merged.as_object_mut()) {
-                for (id, entry) in src {
-                    if !dst.contains_key(id) {
-                        dst.insert(id.clone(), entry.clone());
+            if let Some(entries) = personal.as_object() {
+                for (id, entry) in entries {
+                    let key = entry
+                        .get("key")
+                        .and_then(|k| k.as_str())
+                        .filter(|k| !k.trim().is_empty());
+                    let Some(key) = key else { continue };
+                    let existing = self
+                        .read_config_providers()?
+                        .and_then(|p| p.get(id).cloned())
+                        .and_then(|d| d.get("settings").cloned())
+                        .and_then(|s| s.get("apiKey").and_then(|k| k.as_str()).map(String::from));
+                    if existing.is_none() {
+                        self.store_provider_key(id, key)?;
                         imported_auth += 1;
                     }
                 }
             }
-            let body = serde_json::to_string_pretty(&merged).map_err(|e| e.to_string())?;
-            std::fs::write(&sandbox, body)
-                .map_err(|e| format!("Cannot write sandbox auth: {}", e))?;
         }
 
         // 2. Personal opencode.json — merge provider/model config, keep ours
-        // authoritative for privacy keys ($schema/share/autoupdate).
+        // authoritative for privacy keys ($schema/share/update). The personal
+        // file may be v1- or v2-shaped; migrate it before merging.
         let personal_config = [
             home.join(".config/opencode/opencode.json"),
             home.join(".opencode.json"),
@@ -488,14 +570,14 @@ impl CoreSupervisor {
         .into_iter()
         .find(|p| p.is_file());
         if let Some(path) = personal_config {
-            let personal: serde_json::Value =
+            let mut personal: serde_json::Value =
                 serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_default())
                     .map_err(|e| format!("Personal opencode.json is not valid JSON: {}", e))?;
-
+            migrate_v1_config(&mut personal);
             if let Some(obj) = personal.as_object() {
                 let mut patch = serde_json::Map::new();
                 for key in obj.keys() {
-                    if key == "$schema" || key == "share" || key == "autoupdate" {
+                    if key == "$schema" || key == "share" || key == "update" {
                         continue; // forced keys stay ours
                     }
                     if let Some(v) = obj.get(key) {
@@ -516,29 +598,41 @@ impl CoreSupervisor {
         }))
     }
 
+    /// The `providers` map of the current sandbox config, if any.
+    fn read_config_providers(&self) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
+        let config_path = self.user_config_path();
+        if !config_path.is_file() {
+            return Ok(None);
+        }
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap_or_default())
+                .map_err(|e| format!("Sandbox config is not valid JSON: {}", e))?;
+        Ok(value.get("providers").and_then(|p| p.as_object()).cloned())
+    }
+
     fn user_config_path(&self) -> PathBuf {
         self.data_dir.join("core/config/opencode/opencode.json")
     }
 
-    /// Path of the sandboxed credential store the core reads at startup.
+    /// Path of the sandboxed config the core reads at startup.
     fn sandbox_auth_path(&self) -> PathBuf {
         self.data_dir.join("core/data/opencode/auth.json")
     }
 
-    /// Persist a provider API key into the sandboxed `auth.json` — the same
-    /// store `opencode auth login` writes and the core reads for every
-    /// provider (precedence: `options.apiKey`, then auth entry, then env).
-    /// Merges; never clobbers other providers' credentials.
+    /// Persist a provider API key for the sandboxed v2 core.
+    ///
+    /// v2 resolved the v1 `options.apiKey` / `auth.json` / env precedence
+    /// chain into one place: `providers.{id}.settings.apiKey` in the config
+    /// (verified against the live core — `/api/model` reports the key back
+    /// on the provider's models). Merges into the existing `providers` map;
+    /// never touches other entries.
     fn store_provider_key(&self, provider_id: &str, key: &str) -> Result<(), String> {
         if key.trim().is_empty() {
             return Ok(());
         }
-        let path = self.sandbox_auth_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let mut value: serde_json::Value = if path.is_file() {
-            serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_default())
+        let config_path = self.user_config_path();
+        let mut value: serde_json::Value = if config_path.is_file() {
+            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap_or_default())
                 .unwrap_or_else(|_| serde_json::json!({}))
         } else {
             serde_json::json!({})
@@ -546,9 +640,39 @@ impl CoreSupervisor {
         if !value.is_object() {
             value = serde_json::json!({});
         }
-        value[provider_id] = serde_json::json!({ "type": "api", "key": key });
+        let root = value
+            .as_object_mut()
+            .expect("checked: config root is an object");
+        let providers = root
+            .entry("providers")
+            .or_insert_with(|| serde_json::json!({}));
+        if !providers.is_object() {
+            *providers = serde_json::json!({});
+        }
+        let provider = providers
+            .as_object_mut()
+            .expect("checked: providers is an object")
+            .entry(provider_id.to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        if !provider.is_object() {
+            *provider = serde_json::json!({});
+        }
+        let provider_obj = provider
+            .as_object_mut()
+            .expect("checked: provider is an object");
+        let settings = provider_obj
+            .entry("settings")
+            .or_insert_with(|| serde_json::json!({}));
+        if !settings.is_object() {
+            *settings = serde_json::json!({});
+        }
+        settings
+            .as_object_mut()
+            .expect("checked: settings is an object")
+            .insert("apiKey".into(), serde_json::json!(key));
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
-        std::fs::write(&path, body).map_err(|e| format!("Cannot write sandbox auth: {}", e))
+        std::fs::write(&config_path, body)
+            .map_err(|e| format!("Cannot write sandbox config: {}", e))
     }
 
     /// One-way, idempotent migration: any plain-text `options.apiKey` in the
@@ -570,14 +694,15 @@ impl CoreSupervisor {
                 Ok(v) => v,
                 Err(_) => return Ok(()), // Hand-edited invalid JSON: leave it for the user.
             };
-        if value.get("agent").is_some() {
+        // v2: `agents` (plural) with `system` (was `agent`/`prompt`).
+        if value.get("agents").is_some() {
             return Ok(());
         }
-        value["agent"] = serde_json::json!({
+        value["agents"] = serde_json::json!({
             "plan": {
                 "mode": "primary",
                 "description": "Plan mode — plans first and keeps the task plan in PLAN.md",
-                "prompt": DEFAULT_PLAN_PROMPT,
+                "system": DEFAULT_PLAN_PROMPT,
             }
         });
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
@@ -597,29 +722,67 @@ impl CoreSupervisor {
                 Ok(v) => v,
                 Err(_) => return Ok(()), // Hand-edited invalid JSON: leave it for the user.
             };
-        let Some(providers) = value.get_mut("provider").and_then(|p| p.as_object_mut()) else {
-            return Ok(());
-        };
-        let mut moved: Vec<(String, String)> = Vec::new();
-        for (id, def) in providers.iter_mut() {
-            let Some(opts) = def.get_mut("options").and_then(|o| o.as_object_mut()) else {
-                continue;
-            };
-            let Some(key) = opts.get("apiKey").and_then(|k| k.as_str()) else {
-                continue;
-            };
-            if key.trim().is_empty() || key.starts_with("{env:") {
-                continue;
+
+        // 1. Migrate the whole document from v1 shapes to v2 (see
+        //    migrate_v1_config): `provider`→`providers` (options→settings),
+        //    `agent`→`agents` (prompt→system), `autoupdate`→`update`.
+        migrate_v1_config(&mut value);
+
+        // 2. Fold any v1 `auth.json` credentials into the v2 location
+        //    (`providers.{id}.settings.apiKey`) before the core reads either —
+        //    v2 does not read auth.json at all.
+        let auth_path = self.sandbox_auth_path();
+        if auth_path.is_file() {
+            if let Ok(auth) = serde_json::from_str::<serde_json::Value>(
+                &std::fs::read_to_string(&auth_path).unwrap_or_default(),
+            ) {
+                if let Some(entries) = auth.as_object() {
+                    for (id, entry) in entries {
+                        let key = entry
+                            .get("key")
+                            .and_then(|k| k.as_str())
+                            .filter(|k| !k.trim().is_empty());
+                        if let Some(key) = key {
+                            // Only when the provider has no key yet — the
+                            // config file wins, it is what the UI last wrote.
+                            let existing = value
+                                .get("providers")
+                                .and_then(|p| p.get(id))
+                                .and_then(|d| d.get("settings"))
+                                .and_then(|s| s.get("apiKey"))
+                                .and_then(|k| k.as_str())
+                                .unwrap_or("");
+                            if existing.is_empty() {
+                                if !value.get("providers").map(|v| v.is_object()).unwrap_or(false)
+                                {
+                                    value["providers"] = serde_json::json!({});
+                                }
+                                if !value["providers"]
+                                    .get(id)
+                                    .map(|v| v.is_object())
+                                    .unwrap_or(false)
+                                {
+                                    value["providers"][id] = serde_json::json!({});
+                                }
+                                if !value["providers"][id]
+                                    .get("settings")
+                                    .map(|v| v.is_object())
+                                    .unwrap_or(false)
+                                {
+                                    value["providers"][id]["settings"] = serde_json::json!({});
+                                }
+                                value["providers"][id]["settings"]["apiKey"] =
+                                    serde_json::json!(key);
+                            }
+                        }
+                    }
+                }
             }
-            moved.push((id.clone(), key.to_string()));
-            opts.remove("apiKey");
+            // The v1 credential store is dead weight now — remove it so it
+            // can never be resurrected by a rollback.
+            let _ = std::fs::remove_file(&auth_path);
         }
-        if moved.is_empty() {
-            return Ok(());
-        }
-        for (id, key) in moved {
-            self.store_provider_key(&id, &key)?;
-        }
+
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
         std::fs::write(&config_path, body)
             .map_err(|e| format!("Cannot rewrite core config: {}", e))
@@ -640,6 +803,8 @@ impl CoreSupervisor {
         } else {
             return Err("Config root must be a JSON object".into());
         };
+        // Raw editors can paste a v1-shaped config; land it in v2 form.
+        migrate_v1_config(&mut value);
         force_privacy_keys(&mut value);
 
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
@@ -652,7 +817,7 @@ impl CoreSupervisor {
                 .build()
             {
                 let _ = client
-                    .patch(format!("{}/config", conn.base_url))
+                    .patch(format!("{}/api/experimental/config", conn.base_url))
                     .basic_auth(&conn.username, Some(&conn.password))
                     .json(&value)
                     .send()
@@ -709,7 +874,7 @@ impl CoreSupervisor {
                 .build()
             {
                 let _ = client
-                    .patch(format!("{}/config", conn.base_url))
+                    .patch(format!("{}/api/experimental/config", conn.base_url))
                     .basic_auth(&conn.username, Some(&conn.password))
                     .json(&value)
                     .send()
@@ -751,33 +916,17 @@ impl CoreSupervisor {
             serde_json::json!({
                 "$schema": "https://opencode.ai/config.json",
                 "share": "disabled",
-                "autoupdate": false
+                "update": "disable"
             })
         };
 
-        if !value.get("provider").is_some() {
-            value["provider"] = serde_json::json!({});
+        if !value.get("providers").is_some() {
+            value["providers"] = serde_json::json!({});
         }
 
-        // New key → store it. No key passed (edit without retyping) → keep the
-        // auth.json entry from the previous save. Either way a legacy plain key
-        // sitting in THIS provider's config options is migrated out now.
-        if let Some(key) = api_key.map(str::trim).filter(|k| !k.is_empty()) {
-            self.store_provider_key(id, key)?;
-        }
-        if let Some(opts) = value
-            .get_mut("provider")
-            .and_then(|p| p.get_mut(id))
-            .and_then(|d| d.get_mut("options"))
-            .and_then(|o| o.as_object_mut())
-        {
-            if let Some(key) = opts.get("apiKey").and_then(|k| k.as_str()) {
-                if !key.trim().is_empty() && !key.starts_with("{env:") {
-                    self.store_provider_key(id, key)?;
-                }
-            }
-            opts.remove("apiKey");
-        }
+        // A legacy v1-shaped key (singular `provider` with `options`) is
+        // migrated wholesale before we write — see migrate_v1_config.
+        migrate_v1_config(&mut value);
 
         let mut models_map = serde_json::Map::new();
         for m in models {
@@ -811,16 +960,30 @@ impl CoreSupervisor {
             models_map.insert(m.id, m_def);
         }
 
-        let provider_obj = value.get_mut("provider").unwrap();
+        let provider_obj = value.get_mut("providers").unwrap();
+        // v2 config shape: `package` selects the provider implementation
+        // (v2 moved off the bare @ai-sdk npm names), `settings` carries the
+        // connection fields (apiKey + baseURL). The core resolves
+        // settings.apiKey directly — v1's auth.json indirection is gone.
+        let mut settings = serde_json::Map::new();
+        settings.insert("baseURL".into(), serde_json::json!(base_url));
+        if let Some(key) = api_key.map(str::trim).filter(|k| !k.is_empty()) {
+            settings.insert("apiKey".into(), serde_json::json!(key));
+        } else {
+            // Edit without retyping the key: keep the existing one.
+            if let Some(existing) = provider_obj
+                .get(id)
+                .and_then(|d| d.get("settings"))
+                .and_then(|s| s.get("apiKey"))
+                .and_then(|k| k.as_str())
+            {
+                settings.insert("apiKey".into(), serde_json::json!(existing));
+            }
+        }
         provider_obj[id] = serde_json::json!({
-            "npm": "@ai-sdk/openai-compatible",
+            "package": "@opencode/ai/providers/openai-compatible",
             "name": name,
-            // No `apiKey` here on purpose: the core resolves it from auth.json
-            // (options.apiKey > auth entry > env). Keeping the file key-free
-            // means an agent-copied config can never leak credentials.
-            "options": {
-                "baseURL": base_url
-            },
+            "settings": serde_json::Value::Object(settings),
             "models": serde_json::Value::Object(models_map)
         });
 
@@ -834,9 +997,9 @@ impl CoreSupervisor {
                 .timeout(std::time::Duration::from_secs(4))
                 .build()
                 .map_err(|e| e.to_string())?;
-            let url = format!("{}/config", conn.base_url);
+            let url = format!("{}/api/experimental/config", conn.base_url);
             let patch_payload = serde_json::json!({
-                "provider": value.get("provider")
+                "providers": value.get("providers")
             });
             let _ = client
                 .patch(&url)
@@ -866,58 +1029,98 @@ impl CoreSupervisor {
         let mut exported_auth = 0usize;
         let mut exported_providers = 0usize;
 
-        // 1. auth.json — copy every sandbox credential the personal file
-        //    does not have yet.
-        let sandbox = self.data_dir.join("core/data/opencode/auth.json");
-        if sandbox.is_file() {
-            let content = std::fs::read_to_string(&sandbox).unwrap_or_default();
-            if let Ok(sandbox_auth) = serde_json::from_str::<serde_json::Value>(&content) {
-                if sandbox_auth
-                    .as_object()
-                    .map(|m| !m.is_empty())
-                    .unwrap_or(false)
-                {
-                    let state_home = std::env::var_os("XDG_STATE_HOME")
-                        .filter(|v| !v.is_empty())
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| home.join(".local/state"));
-                    let personal_path = state_home.join("opencode/auth.json");
-                    if let Some(parent) = personal_path.parent() {
-                        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                    }
-                    let mut personal: serde_json::Value = if personal_path.is_file() {
-                        serde_json::from_str(
-                            &std::fs::read_to_string(&personal_path).unwrap_or_default(),
-                        )
-                        .unwrap_or_else(|_| serde_json::json!({}))
-                    } else {
-                        serde_json::json!({})
-                    };
-                    if let (Some(src), Some(dst)) =
-                        (sandbox_auth.as_object(), personal.as_object_mut())
-                    {
-                        for (id, entry) in src {
-                            if !dst.contains_key(id) {
-                                dst.insert(id.clone(), entry.clone());
-                                exported_auth += 1;
-                            }
-                        }
-                    }
-                    let body =
-                        serde_json::to_string_pretty(&personal).map_err(|e| e.to_string())?;
-                    std::fs::write(&personal_path, body)
-                        .map_err(|e| format!("Cannot write personal auth: {}", e))?;
+        // 1. Provider API keys from the sandbox config -> the personal v2
+        //    config (`providers.{id}.settings.apiKey`), never overwriting a
+        //    key the personal setup already holds. (v1 kept keys in
+        //    auth.json; v2's config-file credential location replaces it.)
+        let personal_config_path = home.join(".config/opencode/opencode.json");
+        if let Some(sandbox_providers) = self.read_config_providers()? {
+            let mut keys_to_export: Vec<(String, String)> = Vec::new();
+            for (id, def) in &sandbox_providers {
+                let key = def
+                    .get("settings")
+                    .and_then(|s| s.get("apiKey"))
+                    .and_then(|k| k.as_str())
+                    .filter(|k| !k.trim().is_empty());
+                if let Some(key) = key {
+                    keys_to_export.push((id.clone(), key.to_string()));
                 }
+            }
+            if !keys_to_export.is_empty() {
+                if let Some(parent) = personal_config_path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                let mut personal: serde_json::Value = if personal_config_path.is_file() {
+                    serde_json::from_str(
+                        &std::fs::read_to_string(&personal_config_path).unwrap_or_default(),
+                    )
+                    .unwrap_or_else(|_| serde_json::json!({}))
+                } else {
+                    serde_json::json!({})
+                };
+                if !personal.is_object() {
+                    personal = serde_json::json!({});
+                }
+                migrate_v1_config(&mut personal);
+                let obj = personal
+                    .as_object_mut()
+                    .expect("checked: personal config root is an object");
+                let providers = obj
+                    .entry("providers")
+                    .or_insert_with(|| serde_json::json!({}));
+                if !providers.is_object() {
+                    *providers = serde_json::json!({});
+                }
+                if let Some(dst) = providers.as_object_mut() {
+                    for (id, key) in keys_to_export {
+                        let has_own_key = dst
+                            .get(&id)
+                            .and_then(|d| d.get("settings"))
+                            .and_then(|s| s.get("apiKey"))
+                            .and_then(|k| k.as_str())
+                            .map(|k| !k.trim().is_empty())
+                            .unwrap_or(false);
+                        if has_own_key {
+                            continue; // personal wins for its own keys
+                        }
+                        let entry = dst
+                            .entry(id)
+                            .or_insert_with(|| serde_json::json!({}));
+                        if !entry.is_object() {
+                            *entry = serde_json::json!({});
+                        }
+                        let settings = entry
+                            .as_object_mut()
+                            .expect("checked: entry is an object")
+                            .entry("settings")
+                            .or_insert_with(|| serde_json::json!({}));
+                        if !settings.is_object() {
+                            *settings = serde_json::json!({});
+                        }
+                        settings
+                            .as_object_mut()
+                            .expect("checked: settings is an object")
+                            .insert("apiKey".into(), serde_json::json!(key));
+                        exported_auth += 1;
+                    }
+                }
+                let body =
+                    serde_json::to_string_pretty(&personal).map_err(|e| e.to_string())?;
+                std::fs::write(&personal_config_path, body)
+                    .map_err(|e| format!("Cannot write personal config: {}", e))?;
             }
         }
 
         // 2. Custom providers from our sandbox config -> personal opencode.json.
         //    Only entries carrying a `models` map (the shape our "custom
-        //    provider" dialog writes) are exported.
+        //    provider" dialog writes) are exported. The personal file may be
+        //    v1- or v2-shaped; migrate it to v2 first so the export lands in
+        //    `providers` (plural). API keys ride along in `settings` — that
+        //    is the documented v2 credential location for config-file users.
         let providers = self
             .read_settings()
             .ok()
-            .and_then(|v| v.get("provider").cloned())
+            .and_then(|v| v.get("providers").cloned())
             .unwrap_or_else(|| serde_json::json!({}));
         if let Some(provider_map) = providers.as_object() {
             if !provider_map.is_empty() {
@@ -936,6 +1139,7 @@ impl CoreSupervisor {
                 if !personal.is_object() {
                     personal = serde_json::json!({});
                 }
+                migrate_v1_config(&mut personal);
                 let obj = personal.as_object_mut().unwrap();
                 let mut patch = serde_json::Map::new();
                 for (id, def) in provider_map {
@@ -946,7 +1150,7 @@ impl CoreSupervisor {
                 }
                 if !patch.is_empty() {
                     let existing = obj
-                        .entry("provider")
+                        .entry("providers")
                         .or_insert_with(|| serde_json::json!({}));
                     if !existing.is_object() {
                         *existing = serde_json::json!({});
@@ -1132,7 +1336,7 @@ impl CoreDirs {
 
         value["$schema"] = serde_json::json!("https://opencode.ai/config.json");
         value["share"] = serde_json::json!("disabled");
-        value["autoupdate"] = serde_json::json!(false);
+        value["update"] = serde_json::json!("disable");
 
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
         std::fs::write(&config_file, body)
@@ -1199,8 +1403,9 @@ where
     });
 }
 
-/// Poll `GET /global/health` until the core answers. Cold start includes
-/// downloading the model catalogue, so this needs a generous ceiling.
+/// Poll `GET /api/info` until the core answers (v2 readiness endpoint).
+/// Cold start includes downloading the model catalogue, so this needs a
+/// generous ceiling.
 async fn wait_until_healthy(conn: &CoreConnection) -> Result<String, String> {
     // Generous ceiling: the first start on a machine with slow or blocked
     // network can spend tens of seconds fetching the model catalogue
@@ -1215,7 +1420,7 @@ async fn wait_until_healthy(conn: &CoreConnection) -> Result<String, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let url = format!("{}/global/health", conn.base_url);
+    let url = format!("{}/api/info", conn.base_url);
     let mut last_error = String::from("core did not become healthy");
 
     for _ in 0..ATTEMPTS {
@@ -1271,7 +1476,8 @@ mod tests {
     fn forced_config_disables_share_and_autoupdate() {
         let json = serde_json::to_value(ForcedConfig::default()).unwrap();
         assert_eq!(json["share"], "disabled");
-        assert_eq!(json["autoupdate"], false);
+        // v2 renamed `autoupdate: false` → `update: "disable"`.
+        assert_eq!(json["update"], "disable");
         assert_eq!(json["$schema"], "https://opencode.ai/config.json");
     }
 
@@ -1328,8 +1534,10 @@ mod tests {
         rt.block_on(sup.write_settings(serde_json::json!({
             "logLevel": "DEBUG",
             "subagent_depth": 3,
-            // A hostile patch must not be able to re-enable sharing.
+            // A hostile patch must not be able to re-enable sharing or
+            // self-update.
             "share": "auto",
+            "update": "auto",
             "autoupdate": true,
         })))
         .unwrap();
@@ -1338,7 +1546,11 @@ mod tests {
         assert_eq!(saved["logLevel"], "DEBUG");
         assert_eq!(saved["subagent_depth"], 3);
         assert_eq!(saved["share"], "disabled");
-        assert_eq!(saved["autoupdate"], false);
+        assert_eq!(saved["update"], "disable");
+        assert!(
+            saved.get("autoupdate").is_none(),
+            "the v1 key must be gone — v2 reads `update`"
+        );
         // The core's only telemetry flag is forced off alongside the rest.
         assert_eq!(saved["experimental"]["openTelemetry"], false);
 
@@ -1379,24 +1591,24 @@ mod tests {
         ))
         .unwrap();
 
-        // A stale UI snapshot saves settings WITHOUT provider.alpha — the deep
-        // merge must keep it (this used to wipe the provider).
+        // A stale UI snapshot saves settings WITHOUT providers.alpha — the
+        // deep merge must keep it (this used to wipe the provider).
         rt.block_on(sup.write_settings(serde_json::json!({ "logLevel": "INFO" })))
             .unwrap();
         let saved = sup.read_settings().unwrap();
         assert!(
-            saved["provider"]["alpha"].is_object(),
+            saved["providers"]["alpha"].is_object(),
             "alpha must survive a stale save"
         );
 
         // Explicit null deletes a nested key.
         rt.block_on(sup.write_settings(serde_json::json!({
-            "provider": { "alpha": null }
+            "providers": { "alpha": null }
         })))
         .unwrap();
         let saved = sup.read_settings().unwrap();
         assert!(
-            saved["provider"].get("alpha").is_none(),
+            saved["providers"].get("alpha").is_none(),
             "explicit null must delete"
         );
 
@@ -1422,9 +1634,14 @@ mod tests {
         rt.block_on(sup.replace_settings(raw)).unwrap();
 
         let saved = sup.read_settings().unwrap();
-        // Everything the raw editor sent survives untouched...
+        // Everything the raw editor sent survives untouched — migrated to
+        // v2 keys on the way in (`agents` with `system`)...
         assert_eq!(saved["model"], "ollama/qwen3");
-        assert_eq!(saved["agent"]["review"]["prompt"], "be terse");
+        assert_eq!(saved["agents"]["review"]["system"], "be terse");
+        assert!(
+            saved.get("agent").is_none(),
+            "v1 `agent` key must migrate to `agents`"
+        );
         // ...except the keys BuzzAgent owns.
         assert_eq!(saved["share"], "disabled");
         assert_eq!(saved["experimental"]["openTelemetry"], false);
@@ -1433,10 +1650,11 @@ mod tests {
     }
 
     #[test]
-    fn provider_api_keys_live_in_auth_store_not_config() {
-        // The core's built-in customize skill copies provider config into
-        // project files; a key in the config would leak into the repository
-        // with it. Keys must land in auth.json instead.
+    fn provider_api_keys_live_in_config_settings() {
+        // v2 resolved the v1 auth.json indirection into the config itself:
+        // `providers.{id}.settings.apiKey`. Our sandbox config is private to
+        // the app (never copied into projects), so this is both the
+        // documented v2 location and one the core actually reads.
         let tmp = std::env::temp_dir().join(format!("bz-keys-{}", uuid::Uuid::new_v4()));
         let sup = CoreSupervisor::new(tmp.clone());
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -1458,17 +1676,18 @@ mod tests {
         .unwrap();
 
         let config = sup.read_settings().unwrap();
-        assert_eq!(config["provider"]["secret"]["options"]["baseURL"], "http://127.0.0.1:1/v1");
-        assert!(
-            config["provider"]["secret"]["options"].get("apiKey").is_none(),
-            "config must not contain the key"
+        assert_eq!(
+            config["providers"]["secret"]["settings"]["baseURL"],
+            "http://127.0.0.1:1/v1"
         );
-        let auth: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(tmp.join("core/data/opencode/auth.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(auth["secret"]["type"], "api");
-        assert_eq!(auth["secret"]["key"], "sk-live-abc123");
+        assert_eq!(
+            config["providers"]["secret"]["settings"]["apiKey"],
+            "sk-live-abc123"
+        );
+        assert_eq!(
+            config["providers"]["secret"]["package"],
+            "@opencode/ai/providers/openai-compatible"
+        );
 
         // Editing without retyping the key must keep the stored one.
         rt.block_on(sup.add_custom_provider(
@@ -1484,17 +1703,21 @@ mod tests {
             }],
         ))
         .unwrap();
-        let auth: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(tmp.join("core/data/opencode/auth.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(auth["secret"]["key"], "sk-live-abc123");
+        let config = sup.read_settings().unwrap();
+        assert_eq!(
+            config["providers"]["secret"]["settings"]["apiKey"],
+            "sk-live-abc123"
+        );
+        assert_eq!(
+            config["providers"]["secret"]["settings"]["baseURL"],
+            "http://127.0.0.1:2/v1"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
-    fn scrub_moves_legacy_keys_from_config_into_auth_store() {
+    fn scrub_migrates_v1_config_and_folds_legacy_auth() {
         let tmp = std::env::temp_dir().join(format!("bz-scrub-{}", uuid::Uuid::new_v4()));
         let sup = CoreSupervisor::new(tmp.clone());
         let config_dir = tmp.join("core/config/opencode");
@@ -1505,13 +1728,9 @@ mod tests {
   "$schema": "https://opencode.ai/config.json",
   "share": "disabled",
   "autoupdate": false,
+  "agent": { "plan": { "mode": "primary", "prompt": "old" } },
   "provider": {
     "legacy": {
-      "npm": "@ai-sdk/openai-compatible",
-      "options": { "baseURL": "http://127.0.0.1:9/v1", "apiKey": "sk-legacy-1" },
-      "models": { "m": { "name": "M" } }
-    },
-    "already-clean": {
       "npm": "@ai-sdk/openai-compatible",
       "options": { "baseURL": "http://127.0.0.1:9/v1" },
       "models": { "m": { "name": "M" } }
@@ -1520,28 +1739,52 @@ mod tests {
 }"#,
         )
         .unwrap();
+        // A v1 credential store: v2 ignores it; the migration must fold the
+        // key into the config and remove the file.
+        let auth_dir = tmp.join("core/data/opencode");
+        std::fs::create_dir_all(&auth_dir).unwrap();
+        std::fs::write(
+            auth_dir.join("auth.json"),
+            r#"{"legacy": {"type": "api", "key": "sk-legacy-1"}, "other": {"type": "api", "key": "sk-legacy-2"}}"#,
+        )
+        .unwrap();
 
         sup.scrub_provider_keys().unwrap();
 
         let config = sup.read_settings().unwrap();
-        assert!(
-            config["provider"]["legacy"]["options"]
-                .get("apiKey")
-                .is_none(),
-            "plain key must leave the config"
-        );
+        // v1 shapes are gone…
+        assert!(config.get("provider").is_none());
+        assert!(config.get("agent").is_none());
+        assert!(config.get("autoupdate").is_none());
+        // …migrated to v2.
         assert_eq!(
-            config["provider"]["legacy"]["options"]["baseURL"],
+            config["providers"]["legacy"]["settings"]["baseURL"],
             "http://127.0.0.1:9/v1"
         );
-        let auth: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(tmp.join("core/data/opencode/auth.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(auth["legacy"]["key"], "sk-legacy-1");
+        assert_eq!(
+            config["providers"]["legacy"]["settings"]["apiKey"],
+            "sk-legacy-1"
+        );
+        assert_eq!(
+            config["providers"]["legacy"]["package"],
+            "@opencode/ai/providers/openai-compatible"
+        );
+        // The auth-only entry becomes a settings-only provider entry.
+        assert_eq!(
+            config["providers"]["other"]["settings"]["apiKey"],
+            "sk-legacy-2"
+        );
+        assert_eq!(config["agents"]["plan"]["system"], "old");
+        // The dead credential store is gone.
+        assert!(!auth_dir.join("auth.json").exists());
 
         // Idempotent: a second run changes nothing and does not error.
         sup.scrub_provider_keys().unwrap();
+        let config = sup.read_settings().unwrap();
+        assert_eq!(
+            config["providers"]["legacy"]["settings"]["apiKey"],
+            "sk-legacy-1"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -1562,20 +1805,20 @@ mod tests {
 
         let config = sup.read_settings().unwrap();
         assert_eq!(
-            config["agent"]["plan"]["prompt"],
+            config["agents"]["plan"]["system"],
             serde_json::json!(DEFAULT_PLAN_PROMPT),
             "first run must seed the PLAN.md plan-mode prompt"
         );
 
         // A user-provided override wins; the seed never comes back over it.
         sup.write_settings(serde_json::json!({
-            "agent": { "plan": { "prompt": "custom plan prompt" } }
+            "agents": { "plan": { "system": "custom plan prompt" } }
         }))
         .await
         .unwrap();
         sup.seed_mode_prompts().unwrap();
         let config = sup.read_settings().unwrap();
-        assert_eq!(config["agent"]["plan"]["prompt"], "custom plan prompt");
+        assert_eq!(config["agents"]["plan"]["system"], "custom plan prompt");
 
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -1621,7 +1864,7 @@ mod tests {
         .unwrap();
 
         let saved = sup.read_settings().unwrap();
-        let providers = saved.get("provider").and_then(|p| p.as_object()).unwrap();
+        let providers = saved.get("providers").and_then(|p| p.as_object()).unwrap();
         assert!(
             providers.contains_key("alpha") && providers.contains_key("beta"),
             "both providers must survive, got: {providers:?}"
@@ -1658,7 +1901,7 @@ mod tests {
         let saved = sup.read_settings().unwrap();
         // Editing settings must not wipe configured providers.
         assert_eq!(
-            saved["provider"]["ollama"]["models"]["qwen3"]["reasoning"],
+            saved["providers"]["ollama"]["models"]["qwen3"]["reasoning"],
             true
         );
         assert_eq!(saved["logLevel"], "WARN");
@@ -1692,72 +1935,61 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("bz-export-{}", uuid::Uuid::new_v4()));
         let sup = CoreSupervisor::new(tmp.clone());
         let home = tmp.join("home");
-        let state_home = home.join(".local/state");
         let config_home = home.join(".config");
-        std::fs::create_dir_all(state_home.join("opencode")).unwrap();
         std::fs::create_dir_all(config_home.join("opencode")).unwrap();
 
-        // Sandbox already holds an openai key and one custom provider.
-        let sandbox_auth_dir = tmp.join("core/data/opencode");
-        std::fs::create_dir_all(&sandbox_auth_dir).unwrap();
-        std::fs::write(
-            sandbox_auth_dir.join("auth.json"),
-            r#"{"openai":{"type":"api","key":"sk-buzz"}}"#,
-        )
-        .unwrap();
+        // Sandbox holds a key (as a settings-only provider entry — the v2
+        // credential location) plus one full custom provider with its key.
         let rt = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();
         rt.block_on(sup.write_settings(serde_json::json!({
-            "provider": { "flick": {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "Flick",
-                "options": { "baseURL": "http://127.0.0.1:9/v1" },
-                "models": { "m1": { "name": "M1" } }
-            } }
+            "providers": {
+                "openai": { "settings": { "apiKey": "sk-buzz" } },
+                "flick": {
+                    "package": "@opencode/ai/providers/openai-compatible",
+                    "name": "Flick",
+                    "settings": { "baseURL": "http://127.0.0.1:9/v1", "apiKey": "sk-flick" },
+                    "models": { "m1": { "name": "M1" } }
+                }
+            }
         })))
         .unwrap();
 
         // The CLI already has its own key, provider and settings.
         std::fs::write(
-            state_home.join("opencode/auth.json"),
-            r#"{"anthropic":{"type":"api","key":"sk-cli"}}"#,
-        )
-        .unwrap();
-        std::fs::write(
             config_home.join("opencode/opencode.json"),
-            r#"{"$schema":"https://opencode.ai/config.json","model":"x/y","provider":{"other":{"models":{"o1":{}}}}}"#,
+            r#"{"$schema":"https://opencode.ai/config.json","model":"x/y","providers":{"other":{"models":{"o1":{}}},"openai":{"settings":{"apiKey":"sk-cli"}}}}"#,
         )
         .unwrap();
 
         // Point the personal roots at the sandbox-free temp tree.
         std::env::set_var("HOME", &home);
-        std::env::set_var("XDG_STATE_HOME", &state_home);
+        std::env::set_var("XDG_STATE_HOME", home.join(".local/state"));
         std::env::set_var("XDG_CONFIG_HOME", &config_home);
 
         let report = sup.export_personal().unwrap();
+        // openai's personal key wins (not overwritten); flick exports whole.
         assert_eq!(report["authProviders"], 1);
         assert_eq!(report["providers"], 1);
-
-        let auth: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(state_home.join("opencode/auth.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(auth["openai"]["key"], "sk-buzz"); // copied in
-        assert_eq!(auth["anthropic"]["key"], "sk-cli"); // existing key untouched
 
         let cfg: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(config_home.join("opencode/opencode.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(
-            cfg["provider"]["flick"]["options"]["baseURL"],
+            cfg["providers"]["openai"]["settings"]["apiKey"],
+            "sk-cli" // existing personal key untouched
+        );
+        assert_eq!(
+            cfg["providers"]["flick"]["settings"]["baseURL"],
             "http://127.0.0.1:9/v1"
         );
-        assert!(cfg["provider"]["other"].is_object()); // existing CLI provider kept
+        assert_eq!(cfg["providers"]["flick"]["settings"]["apiKey"], "sk-flick");
+        assert!(cfg["providers"]["other"].is_object()); // existing CLI provider kept
         assert_eq!(cfg["model"], "x/y"); // unrelated personal settings kept
         assert!(cfg.get("share").is_none()); // forced privacy keys are not exported
-        assert!(cfg.get("autoupdate").is_none());
+        assert!(cfg.get("update").is_none());
 
         std::fs::remove_dir_all(&tmp).ok();
     }

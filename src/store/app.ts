@@ -613,16 +613,17 @@ export const useApp = create<AppState>((set, get) => ({
       providers = await client.providers();
     }
     const settings = await invoke<Record<string, unknown>>("core_read_settings");
-    const config = { provider: settings.provider } as Record<string, unknown>;
+    // v2 config: `providers` (plural) with `settings.{apiKey, baseURL}`.
+    const config = { providers: settings.providers } as Record<string, unknown>;
 
-    const customProviders = (config.provider ?? {}) as Record<
+    const customProviders = (config.providers ?? {}) as Record<
       string,
       Record<string, unknown>
     >;
     set({ customProviders });
 
     // Merge any custom providers configured in core config (e.g. Ollama, LM Studio, vLLM, DeepSeek)
-    const custom = (config.provider ?? {}) as Record<string, Record<string, unknown>>;
+    const custom = (config.providers ?? {}) as Record<string, Record<string, unknown>>;
     if (custom && typeof custom === "object") {
       for (const [id, def] of Object.entries(custom)) {
         if (!def || typeof def !== "object") continue;
@@ -668,7 +669,8 @@ export const useApp = create<AppState>((set, get) => ({
   saveApiKey: async (providerId, key) => {
     const client = get().client;
     if (!client) throw new Error("Core is not running");
-    await client.setAuth(providerId, { type: "api", key });
+    // v2: integration connect-by-key.
+    await client.setAuth(providerId, key);
     // `connected` changes on the core: the cached catalogue is now stale.
     await get().refreshProviders(true);
   },
@@ -759,10 +761,14 @@ export const useApp = create<AppState>((set, get) => ({
   oauthLogin: async (providerId) => {
     const client = get().client;
     if (!client) return false;
+    // v2: begin the integration OAuth attempt, open its browser URL, then
+    // poll the attempt until the core reports it connected.
     let url: string | undefined;
+    let attemptID: string | undefined;
     try {
-      const result = (await client.oauthAuthorize(providerId)) as { url?: string };
-      url = typeof result?.url === "string" ? result.url : undefined;
+      const attempt = await client.beginOauth(providerId);
+      url = attempt.url;
+      attemptID = attempt.attemptID;
     } catch (error) {
       get().reportError(error);
       return false;
@@ -776,6 +782,15 @@ export const useApp = create<AppState>((set, get) => ({
     // few seconds; give slow humans a minute), then report honestly.
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 3000));
+      if (attemptID) {
+        const status = await client
+          .oauthAttemptStatus(providerId, attemptID)
+          .catch(() => "pending");
+        if (status === "connected") {
+          await get().refreshProviders(true).catch(() => undefined);
+          return true;
+        }
+      }
       await get().refreshProviders(true).catch(() => undefined);
       if (get().providers?.connected.includes(providerId)) return true;
     }
@@ -786,9 +801,9 @@ export const useApp = create<AppState>((set, get) => ({
     const client = get().client;
     if (!client) return;
     // 1. Remove from the on-disk core config. The core deep-merges patches,
-    // so deletion is an explicit null, not an absent key.
+    // so deletion is an explicit null, not an absent key. (v2: `providers`.)
     await invoke("core_write_settings", {
-      patch: { provider: { [id]: null } },
+      patch: { providers: { [id]: null } },
     });
 
     // 2. Remove stored credentials too (built-ins keep only their auth here).
@@ -1026,11 +1041,19 @@ export const useApp = create<AppState>((set, get) => ({
     startWatchdog(set, get);
 
     try {
-      await client.promptAsync(sessionId, parts, {
-        model: activeModel,
-        agent: options?.agent,
-        variant,
-      });
+      // v2: the model/agent ride on the session (dedicated switch
+      // endpoints) and the prompt body is plain text. The reasoning level
+      // rides inside the Model.Ref as `variant`.
+      if (activeModel) {
+        await client.switchModel(sessionId, {
+          ...activeModel,
+          ...(variant ? { variant } : {}),
+        });
+      }
+      if (options?.agent) {
+        await client.switchAgent(sessionId, options.agent);
+      }
+      await client.promptAsync(sessionId, visibleText);
     } catch (error) {
       set({ busy: false });
       // The prompt never reached the core (or was refused): surface the real
@@ -1064,8 +1087,8 @@ export const useApp = create<AppState>((set, get) => ({
       messages: s.messages,
       model: s.model,
       api: {
-        summarize: (id: string, model: ModelRef) =>
-          s.client ? s.client.summarize(id, model) : Promise.reject(new Error("Core is not running")),
+        summarize: (id: string) =>
+          s.client ? s.client.compact(id) : Promise.reject(new Error("Core is not running")),
         revert: (id: string, messageID: string) =>
           s.client ? s.client.revert(id, messageID) : Promise.reject(new Error("Core is not running")),
         unrevert: (id: string) =>

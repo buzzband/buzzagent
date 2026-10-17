@@ -16,6 +16,8 @@ function makeClient() {
       parts: [],
     }),
     promptAsync: vi.fn().mockResolvedValue(undefined),
+        switchModel: vi.fn().mockResolvedValue(undefined),
+        switchAgent: vi.fn().mockResolvedValue(undefined),
   };
 }
 

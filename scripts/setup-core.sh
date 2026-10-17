@@ -13,9 +13,16 @@
 # The host target also gets the plain `opencode` name used by `npm run dev`.
 set -euo pipefail
 
-VERSION="1.18.30"
+VERSION="2.0.32"
 TARGET_DIR="${1:-bin}"
 shift || true
+
+# v2 distributes standalone binaries from opencode.ai. Pinned, reproducible
+# URL: /files/bin/{VERSION}/{asset}. The `latest` alias
+# (/update/api/latest/cli/opencode/{asset}) exists as a fallback when the
+# pinned file has been rotated out.
+BASE_URL="https://opencode.ai/files/bin/${VERSION}"
+FALLBACK_URL="https://opencode.ai/update/api/latest/cli/opencode"
 
 asset_for() {
   case "$1" in
@@ -87,10 +94,17 @@ for triple in "${TRIPLES[@]}"; do
   SRC="$TMP_DIR/$triple"
   mkdir -p "$SRC"
 
-  echo "Downloading OpenCode v${VERSION} (${ASSET}) from GitHub Releases..."
-  curl -fsSL \
-    "https://github.com/anomalyco/opencode/releases/download/v${VERSION}/${ASSET}" \
-    -o "$TMP_DIR/$ASSET"
+  echo "Downloading OpenCode v${VERSION} (${ASSET}) from opencode.ai..."
+  # --retry-all-errors: the CDN occasionally drops TLS mid-transfer on the
+  # ~100 MB archives; plain --retry does not re-attempt those.
+  if ! curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+    "${BASE_URL}/${ASSET}" \
+    -o "$TMP_DIR/$ASSET"; then
+    echo "Pinned URL unavailable — falling back to the latest release"
+    curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+      "${FALLBACK_URL}/${ASSET}" \
+      -o "$TMP_DIR/$ASSET"
+  fi
 
   if [[ "$ASSET" == *.tar.gz ]]; then
     tar -xzf "$TMP_DIR/$ASSET" -C "$SRC"

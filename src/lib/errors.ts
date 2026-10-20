@@ -145,6 +145,19 @@ function classify(text: string, status?: number): { kind: ErrorKind; source: Err
   if (status === 404 || has("not found", "no such model", "model_not_found", "does not exist")) {
     return { kind: "not-found", source: status !== undefined ? "core" : "provider" };
   }
+  // Provider config errors (v2 wording): the route/model cannot be built
+  // because the provider entry is incomplete. Surfaced as a provider error
+  // so the card links straight to Settings → Providers.
+  if (
+    has(
+      "requires an endpoint baseurl",
+      "configure it on the route",
+      "cannot initialize",
+      "model unavailable"
+    )
+  ) {
+    return { kind: "provider", source: "provider" };
+  }
   if (has("timed out", "request timeout", "etimedout", "deadline exceeded", "socket timeout")) {
     return { kind: "timeout", source: "network" };
   }

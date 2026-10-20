@@ -14,18 +14,19 @@ cat <<EOF > "$STATE_DIR/opencode/opencode.jsonc"
 {
   "\$schema": "https://opencode.ai/config.json",
   "share": "disabled",
-  "autoupdate": false,
+  "update": "disable",
   "small_model": "mock/mock-coder",
-  "provider": {
+  "providers": {
     "mock": {
-      "npm": "@ai-sdk/openai-compatible",
+      "package": "@opencode/ai/providers/openai-compatible",
       "name": "Mock (local test)",
-      "options": {
+      "settings": {
         "baseURL": "http://127.0.0.1:${PORT_PROVIDER}/v1"
       },
       "models": {
         "mock-coder": {
-          "name": "Mock Coder"
+          "name": "Mock Coder",
+          "modelID": "mock-coder"
         }
       }
     }
@@ -79,7 +80,7 @@ PID_CORE=$!
 
 # Wait for core health (can take 10-15s on first start)
 for i in {1..120}; do
-  if curl -m 2 -s -u "opencode:${PASSWORD}" "http://127.0.0.1:${PORT_CORE}/global/health" | grep -q "healthy"; then
+  if curl -m 2 -s -u "opencode:${PASSWORD}" "http://127.0.0.1:${PORT_CORE}/api/info" | grep -q '"version"'; then
     echo "Core is healthy on port ${PORT_CORE}"
     break
   fi

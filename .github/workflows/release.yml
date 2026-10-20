@@ -88,6 +88,20 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.6
+            - **Missing provider endpoint is now impossible to miss**: a custom
+              provider without a Base URL shows a red "Endpoint URL missing"
+              warning in Settings, and chat provider errors (like
+              "requires an endpoint baseURL") now carry a one-click
+              **Providers** button. Errors can no longer leave you guessing.
+            - Provider configs can never be gutted by editing or by toggling
+              reasoning again (empty URLs are rejected/preserved), but a URL
+              already wiped by older builds must be re-entered once in
+              Settings → Providers → Edit.
+            - CI integration script updated to the v2 core (health endpoint,
+              v2 provider config); the full turn pipeline is exercised against
+              a real `opencode serve` on every run.
+
             ## Fixed in 0.2.5
             - **CI reliability (no app changes)**: the Intel macOS installer now
               builds on the dedicated `macos-13` runner instead of competing for
@@ -181,6 +195,20 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.6
+            - **Missing provider endpoint is now impossible to miss**: a custom
+              provider without a Base URL shows a red "Endpoint URL missing"
+              warning in Settings, and chat provider errors (like
+              "requires an endpoint baseURL") now carry a one-click
+              **Providers** button. Errors can no longer leave you guessing.
+            - Provider configs can never be gutted by editing or by toggling
+              reasoning again (empty URLs are rejected/preserved), but a URL
+              already wiped by older builds must be re-entered once in
+              Settings → Providers → Edit.
+            - CI integration script updated to the v2 core (health endpoint,
+              v2 provider config); the full turn pipeline is exercised against
+              a real `opencode serve` on every run.
 
             ## Fixed in 0.2.5
             - **CI reliability (no app changes)**: the Intel macOS installer now

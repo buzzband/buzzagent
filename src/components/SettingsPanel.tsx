@@ -1075,10 +1075,17 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                               <div className="truncate text-xs font-medium text-[var(--fg-primary)]">
                                 {draft.name}
                               </div>
-                              <div className="truncate font-mono text-2xs text-[var(--fg-muted)]">
-                                {draft.baseUrl} · {Object.keys(models).length} model
-                                {Object.keys(models).length === 1 ? "" : "s"}
-                              </div>
+                              {draft.baseUrl ? (
+                                <div className="truncate font-mono text-2xs text-[var(--fg-muted)]">
+                                  {draft.baseUrl} · {Object.keys(models).length} model
+                                  {Object.keys(models).length === 1 ? "" : "s"}
+                                </div>
+                              ) : (
+                                <div className="truncate text-2xs font-medium text-[var(--danger)]">
+                                  Endpoint URL missing — click Edit to fix (the
+                                  core rejects every prompt for this provider)
+                                </div>
+                              )}
                             </div>
                             <button
                               type="button"

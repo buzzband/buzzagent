@@ -75,6 +75,9 @@ function kindActions(kind: ErrorKind, source: string): { key: "providers" | "cor
   if (kind === "auth" || kind === "balance" || kind === "not-found") {
     return [{ key: "providers" }];
   }
+  // Provider failures are nearly always a configuration problem (endpoint,
+  // model id, credentials) — give the one-click path to its editor.
+  if (kind === "provider") return [{ key: "providers" }];
   if (kind === "server" || source === "core") return [{ key: "core-log" }];
   return [];
 }

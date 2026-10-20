@@ -387,6 +387,36 @@ function loadFrameMode(): "system" | "custom" {
  * Objects are merged over the fallback as before; anything else (or a type
  * mismatch with the fallback) falls back wholesale.
  */
+/** Chosen model, persisted so a restart never silently auto-picks another
+ *  (possibly unreachable) provider. */
+const MODEL_KEY = "buzzagent.model";
+function loadStoredModel(): ModelRef | null {
+  try {
+    const raw = localStorage.getItem(MODEL_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as ModelRef).providerID === "string" &&
+      typeof (parsed as ModelRef).modelID === "string"
+    ) {
+      return parsed as ModelRef;
+    }
+  } catch {
+    // ignore corrupt storage
+  }
+  return null;
+}
+function saveStoredModel(model: ModelRef | null) {
+  try {
+    if (model) localStorage.setItem(MODEL_KEY, JSON.stringify(model));
+    else localStorage.removeItem(MODEL_KEY);
+  } catch {
+    // storage unavailable — non-fatal, auto-pick still works
+  }
+}
+
 function loadJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -486,7 +516,7 @@ export const useApp = create<AppState>((set, get) => ({
   hiddenProjects: loadJson<string[]>("buzzagent.hidden_projects", []),
 
   providers: null,
-  model: null,
+  model: loadStoredModel(),
 
   sessions: [],
   sessionId: null,
@@ -661,14 +691,32 @@ export const useApp = create<AppState>((set, get) => ({
     set({ providers });
 
     // Never fall back to an implicit default: Zen is "connected" out of the
-    // box, so an automatic pick could silently bill a hosted gateway.
-    const current = get().model;
+    // box, so an automatic pick could silently bill a hosted gateway. The
+    // user's choice is persisted; only a stale one (provider gone, model
+    // removed) falls back to the first connected provider.
+    let current = get().model;
+    if (current) {
+      const provider = providers.all.find((p) => p.id === current!.providerID);
+      const known = provider && Object.keys(provider.models).length > 0;
+      const hasModel = provider ? provider.models[current.modelID] !== undefined : false;
+      if (!provider || (known && !hasModel)) {
+        current = null;
+        set({ model: null });
+        saveStoredModel(null);
+      }
+    }
     if (current) return;
     const explicit = pickUserProvider(providers);
-    if (explicit) set({ model: explicit });
+    if (explicit) {
+      set({ model: explicit });
+      saveStoredModel(explicit);
+    }
   },
 
-  setModel: (model) => set({ model }),
+  setModel: (model) => {
+    saveStoredModel(model);
+    set({ model });
+  },
 
   saveApiKey: async (providerId, key) => {
     const client = get().client;
@@ -814,7 +862,10 @@ export const useApp = create<AppState>((set, get) => ({
     await client.deleteProviderAuth(id).catch(() => undefined);
 
     // 3. Drop the model if it belonged to the removed provider.
-    if (get().model?.providerID === id) set({ model: null });
+    if (get().model?.providerID === id) {
+      set({ model: null });
+      saveStoredModel(null);
+    }
 
     // 4. Restart so the running core drops it too.
     const projectDir = get().projectDir;

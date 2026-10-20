@@ -88,6 +88,14 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.11
+            - **Selected model now persists**: on every launch the app silently
+              auto-picked the first connected provider — if that endpoint is
+              unreachable (the reported `getaddrinfo ETIMEOUT` retries), every
+              turn failed even though another provider worked. Your model
+              choice is stored and restored; a stale choice (deleted provider /
+              removed model) falls back safely.
+
             ## Fixed in 0.2.10 — critical
             - **Desktop UI never received core events**: the Rust SSE pump still
               connected to the v1 `/event` endpoint; v2 streams at `/api/event`.
@@ -230,6 +238,14 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.11
+            - **Selected model now persists**: on every launch the app silently
+              auto-picked the first connected provider — if that endpoint is
+              unreachable (the reported `getaddrinfo ETIMEOUT` retries), every
+              turn failed even though another provider worked. Your model
+              choice is stored and restored; a stale choice (deleted provider /
+              removed model) falls back safely.
 
             ## Fixed in 0.2.10 — critical
             - **Desktop UI never received core events**: the Rust SSE pump still

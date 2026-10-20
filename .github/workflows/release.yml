@@ -88,6 +88,15 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.15
+            - **Custom notification sound now works**: the chosen audio file was
+              written into localStorage together with the other preferences,
+              whose quota is far too small for a base64 audio file — `setItem`
+              threw and the whole update (including the sound) was lost. The
+              sound is now stored in IndexedDB and played through the shared
+              AudioContext (also fixing webview autoplay blocking outside a
+              user gesture). The Test button and turn notifications both use it.
+
             ## Fixed in 0.2.14
             - **The working indicator no longer disappears mid-turn (root
               cause)**: v2 sends an SSE heartbeat every 15 s, but the pump
@@ -268,6 +277,15 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.15
+            - **Custom notification sound now works**: the chosen audio file was
+              written into localStorage together with the other preferences,
+              whose quota is far too small for a base64 audio file — `setItem`
+              threw and the whole update (including the sound) was lost. The
+              sound is now stored in IndexedDB and played through the shared
+              AudioContext (also fixing webview autoplay blocking outside a
+              user gesture). The Test button and turn notifications both use it.
 
             ## Fixed in 0.2.14
             - **The working indicator no longer disappears mid-turn (root

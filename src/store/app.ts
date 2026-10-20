@@ -390,6 +390,47 @@ function loadFrameMode(): "system" | "custom" {
  * Objects are merged over the fallback as before; anything else (or a type
  * mismatch with the fallback) falls back wholesale.
  */
+/** Custom notification sound persistence (IndexedDB — audio files overflow
+ *  localStorage's small quota, and a throwing setItem aborted the update). */
+const SOUND_DB = "buzzagent-sounds";
+const SOUND_STORE = "sounds";
+function withSoundDb<T>(fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("IndexedDB unavailable"));
+      return;
+    }
+    const open = indexedDB.open(SOUND_DB, 1);
+    open.onupgradeneeded = () => {
+      if (!open.result.objectStoreNames.contains(SOUND_STORE)) {
+        open.result.createObjectStore(SOUND_STORE);
+      }
+    };
+    open.onerror = () => reject(open.error ?? new Error("IndexedDB open failed"));
+    open.onsuccess = () => {
+      const db = open.result;
+      try {
+        const tx = db.transaction(SOUND_STORE, "readwrite");
+        const request = fn(tx.objectStore(SOUND_STORE));
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error("IndexedDB request failed"));
+      } catch (e) {
+        reject(e);
+      } finally {
+        db.close();
+      }
+    };
+  });
+}
+function saveCustomSound(dataUrl: string): Promise<unknown> {
+  return withSoundDb((store) => store.put(dataUrl, "custom"));
+}
+function loadCustomSound(): Promise<string | null> {
+  return withSoundDb<string | undefined>((store) => store.get("custom"))
+    .then((v) => (typeof v === "string" && v ? v : null))
+    .catch(() => null);
+}
+
 /** Chosen model, persisted so a restart never silently auto-picks another
  *  (possibly unreachable) provider. */
 const MODEL_KEY = "buzzagent.model";
@@ -1506,7 +1547,19 @@ export const useApp = create<AppState>((set, get) => ({
   },
   setNotify: (prefs) => {
     const next = { ...get().notify, ...prefs };
-    localStorage.setItem("buzzagent.notify", JSON.stringify(next));
+    // The custom sound can be megabytes of base64; localStorage's quota is
+    // tiny and setItem throwing aborted the whole update (custom sounds
+    // silently never saved). Keep prefs light, store the audio in IndexedDB.
+    const persistable: Record<string, unknown> = { ...next };
+    delete persistable.customSound;
+    try {
+      localStorage.setItem("buzzagent.notify", JSON.stringify(persistable));
+    } catch {
+      // Other prefs still apply in-memory; persistence is best-effort.
+    }
+    if (prefs.customSound !== undefined) {
+      if (prefs.customSound) void saveCustomSound(prefs.customSound).catch(() => undefined);
+    }
     set({ notify: next });
   },
   setVoice: (prefs) => {
@@ -2018,12 +2071,28 @@ const SOUND_PRESETS: Record<
  *  the webview autoplay policy suspends it until a user gesture. We fire it
  *  inside a try/catch so a blocked context never breaks the notification. */
 export function playCompletionSound(soundId: string, customSound?: string) {
-  // A user-provided file wins when "custom" is selected.
+  // A user-provided file wins when "custom" is selected. Decode it through
+  // the same AudioContext used by the presets: `new Audio().play()` is
+  // rejected by the webview autoplay policy when the sound fires outside a
+  // user gesture (i.e. on turn completion).
   if (soundId === "custom" && customSound) {
     try {
-      const audio = new Audio(customSound);
-      audio.volume = 0.7;
-      void audio.play().catch(() => undefined);
+      const ctx = new AudioContext();
+      void ctx
+        .resume()
+        .then(async () => {
+          const buffer = await (await fetch(customSound)).arrayBuffer();
+          const decoded = await ctx.decodeAudioData(buffer);
+          const source = ctx.createBufferSource();
+          source.buffer = decoded;
+          const gain = ctx.createGain();
+          gain.gain.value = 0.8;
+          source.connect(gain);
+          gain.connect(ctx.destination);
+          source.onended = () => void ctx.close();
+          source.start();
+        })
+        .catch(() => undefined);
       return;
     } catch {
       // Fall through to a preset so the user still hears something.
@@ -2470,6 +2539,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Choose a sensible starting model *without* implicitly using Zen.
  * Returns null when the user has no provider of their own configured.
  */
+// Restore the custom notification sound saved in IndexedDB (localStorage only
+// holds the lightweight prefs).
+if (typeof indexedDB !== "undefined") {
+  void loadCustomSound().then((sound) => {
+    if (sound) {
+      useApp.setState((state) => ({
+        notify: { ...state.notify, customSound: sound },
+      }));
+    }
+  });
+}
+
 export function pickUserProvider(providers: ProviderList): ModelRef | null {
   const connected = providers.connected.filter((id) => id !== "opencode");
   for (const id of connected) {

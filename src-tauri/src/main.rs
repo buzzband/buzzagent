@@ -1472,9 +1472,13 @@ async fn main() {
                 // remaining direct child (headless Chrome), then let the
                 // process exit immediately.
                 let state = app_handle.state::<AppState>();
+                // Explicit semicolon + inner scope: the try_lock temporary
+                // (Result<MutexGuard>) must drop before `state`. Newer rustc
+                // rejects the implicit drop order (E0597 on the Windows and
+                // macOS CI runners).
                 if let Ok(mut core) = state.core.try_lock() {
                     core.kill_now();
-                }
+                };
                 #[cfg(unix)]
                 kill_child_processes();
                 // The Browser handle is deliberately not dropped here:

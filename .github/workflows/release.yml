@@ -85,6 +85,12 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.4
+            - **Windows / macOS build fix**: the exit cleanup's `try_lock`
+              temporary outlived its borrow on platforms without the Unix-only
+              kill line (E0597) — the Windows Rust Check and installer build
+              failed. Scoped with a semicolon; all platforms compile again.
+
             ## Fixed in 0.2.3
             - **Custom provider "requires an endpoint baseURL"**: the provider
               editor and the reasoning chip read the old v1 config key, so
@@ -164,6 +170,12 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.4
+            - **Windows / macOS build fix**: the exit cleanup's `try_lock`
+              temporary outlived its borrow on platforms without the Unix-only
+              kill line (E0597) — the Windows Rust Check and installer build
+              failed. Scoped with a semicolon; all platforms compile again.
 
             ## Fixed in 0.2.3
             - **Custom provider "requires an endpoint baseURL"**: the provider

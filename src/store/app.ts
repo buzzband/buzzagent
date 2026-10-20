@@ -1022,8 +1022,11 @@ export const useApp = create<AppState>((set, get) => ({
     // with the authoritative message on the next event. Parts get a synthetic
     // `local-part-` id so the real part events (which carry their own ids) can
     // replace them instead of appending a second copy — see the part handler.
+    // A new prompt also dismisses the previous turn's error: with the sticky
+    // bottom banner it would otherwise hang over the fresh turn.
     set((state) => ({
       busy: true,
+      lastError: null,
       messages: [
         ...state.messages,
         {

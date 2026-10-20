@@ -222,9 +222,44 @@ pub(crate) fn migrate_v1_config(value: &mut serde_json::Value) {
     if let Some(obj) = value.as_object_mut() {
         obj.remove("autoupdate");
     }
+
+    // Model variants: v1 wrote a map (`{ "high": { "reasoningEffort": … } }`);
+    // the v2 parser rejects that shape and drops the provider's entire model
+    // list → every prompt fails with `provider.no-route`. Convert to the v2
+    // array (`[{ id, settings }]`) so existing installs heal on next start.
+    if let Some(providers) = value.get_mut("providers").and_then(|p| p.as_object_mut()) {
+        for (_id, provider) in providers.iter_mut() {
+            let Some(models) = provider.get_mut("models").and_then(|m| m.as_object_mut()) else {
+                continue;
+            };
+            for (_model_key, model) in models.iter_mut() {
+                let Some(variants) = model.get_mut("variants") else {
+                    continue;
+                };
+                let Some(map) = variants.as_object() else {
+                    continue; // already an array (or invalid) — leave it
+                };
+                let converted: Vec<Value> = map
+                    .iter()
+                    .map(|(level, settings)| {
+                        Value::Object(
+                            [
+                                ("id".to_string(), Value::String(level.clone())),
+                                ("settings".to_string(), settings.clone()),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        )
+                    })
+                    .collect();
+                *variants = Value::Array(converted);
+            }
+        }
+    }
 }
 
-fn force_privacy_keys(value: &mut serde_json::Value) {    value["$schema"] = serde_json::json!("https://opencode.ai/config.json");
+fn force_privacy_keys(value: &mut serde_json::Value) {
+    value["$schema"] = serde_json::json!("https://opencode.ai/config.json");
     value["share"] = serde_json::json!("disabled");
     // v2 renamed `autoupdate: false` → `update: "disable"`.
     value["update"] = serde_json::json!("disable");
@@ -862,6 +897,9 @@ impl CoreSupervisor {
 
         merge_settings(&mut value, &patch);
 
+        // Heal v1-shaped leftovers (provider/options, agent/prompt, map
+        // variants) before the forced keys are re-applied.
+        migrate_v1_config(&mut value);
         force_privacy_keys(&mut value);
 
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
@@ -938,23 +976,25 @@ impl CoreSupervisor {
             }
             if let Some(level) = &m.level {
                 if level != "off" {
-                    // Per-variant config the core merges into the model's
-                    // request options when the prompt carries top-level
-                    // `variant: <key>` (see LLMRequestPrep: model options →
-                    // agent options → variant options). For @ai-sdk/
-                    // openai-compatible providers the SDK maps
-                    // `reasoningEffort` to the `reasoning_effort` request
-                    // field, so each level maps 1:1 to the wire value. `off`
-                    // is deliberately absent: with no level chosen the core
-                    // sends no variant at all, i.e. provider default behaviour.
-                    m_def["variants"] = serde_json::json!({
-                        "minimal": { "reasoningEffort": "minimal" },
-                        "low":     { "reasoningEffort": "low" },
-                        "medium":  { "reasoningEffort": "medium" },
-                        "high":    { "reasoningEffort": "high" },
-                        "xhigh":   { "reasoningEffort": "xhigh" },
-                        "max":     { "reasoningEffort": "max" }
-                    });
+                    // v2 `variants` is an ARRAY of `{ id, settings }` — the
+                    // v1 map form (`{ "high": { "reasoningEffort": … } }`)
+                    // is silently rejected by the v2 config parser: the
+                    // provider's whole model list vanishes and every prompt
+                    // fails with `provider.no-route — Model unavailable`.
+                    // (Verified live: map → models: []; array → routed.)
+                    // `settings.reasoningEffort` maps 1:1 to the wire
+                    // `reasoning_effort` value; `off` is deliberately absent
+                    // (no variant = provider default behaviour).
+                    let variants: Vec<serde_json::Value> = ["minimal", "low", "medium", "high", "xhigh", "max"]
+                        .iter()
+                        .map(|level| {
+                            serde_json::json!({
+                                "id": level,
+                                "settings": { "reasoningEffort": level }
+                            })
+                        })
+                        .collect();
+                    m_def["variants"] = serde_json::Value::Array(variants);
                 }
             }
             models_map.insert(m.id, m_def);
@@ -1712,6 +1752,62 @@ mod tests {
             config["providers"]["secret"]["settings"]["baseURL"],
             "http://127.0.0.1:2/v1"
         );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn variants_use_the_v2_array_shape_and_legacy_maps_migrate() {
+        // Regression: v1 wrote variants as a MAP (`{ "high": { … } }`). The
+        // v2 config parser rejects that shape, drops the provider's whole
+        // model list, and every prompt fails with
+        // `provider.no-route — Model unavailable: provider/model`.
+        let tmp = std::env::temp_dir().join(format!("bz-variants-{}", uuid::Uuid::new_v4()));
+        let sup = CoreSupervisor::new(tmp.clone());
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+
+        rt.block_on(sup.add_custom_provider(
+            "apiriver",
+            "apiriver",
+            "http://127.0.0.1:1/v1",
+            Some("k"),
+            vec![CustomModelEntry {
+                id: "deepseek-ai/DeepSeek-V4.1-Flash-1017".into(),
+                name: Some("Flash".into()),
+                reasoning: Some(true),
+                level: Some("high".into()),
+            }],
+        ))
+        .unwrap();
+
+        let config = sup.read_settings().unwrap();
+        let variants = &config["providers"]["apiriver"]["models"]
+            ["deepseek-ai/DeepSeek-V4.1-Flash-1017"]["variants"];
+        let arr = variants.as_array().expect("variants must be an array in v2");
+        assert!(arr.iter().any(|v| v["id"] == "high"));
+        assert_eq!(arr[0]["settings"]["reasoningEffort"], arr[0]["id"]);
+
+        // A legacy v1 map already on disk is converted on the next write.
+        let config_path = tmp.join("core/config/opencode/opencode.json");
+        let mut legacy: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        legacy["providers"]["apiriver"]["models"]["deepseek-ai/DeepSeek-V4.1-Flash-1017"]
+            ["variants"] = serde_json::json!({
+                "high": { "reasoningEffort": "high" },
+                "low": { "reasoningEffort": "low" }
+            });
+        std::fs::write(&config_path, serde_json::to_string_pretty(&legacy).unwrap()).unwrap();
+
+        rt.block_on(sup.write_settings(serde_json::json!({ "logLevel": "INFO" })))
+            .unwrap();
+        let config = sup.read_settings().unwrap();
+        let variants = &config["providers"]["apiriver"]["models"]
+            ["deepseek-ai/DeepSeek-V4.1-Flash-1017"]["variants"];
+        let arr = variants.as_array().expect("legacy map must migrate to array");
+        assert_eq!(arr.len(), 2);
+        assert!(arr.iter().any(|v| v["id"] == "high" && v["settings"]["reasoningEffort"] == "high"));
 
         std::fs::remove_dir_all(&tmp).ok();
     }

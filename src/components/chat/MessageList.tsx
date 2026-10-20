@@ -118,7 +118,14 @@ export function MessageList({ messages, busy }: Props) {
             in scroll-following so the user sees it instead of a silent tail. */}
         <TurnStatus />
 
-        {hasError && <ChatErrorBanner />}
+        {/* Sticky at the bottom edge of the chat viewport: the error must be
+            the LAST thing the user sees, never something that scrolls out of
+            view above newer content. */}
+        {hasError && (
+          <div className="sticky bottom-0 z-20 bg-[var(--bg-base)]/95 backdrop-blur-sm">
+            <ChatErrorBanner />
+          </div>
+        )}
 
         {/* Breathing room so the last message is never glued to the composer. */}
         <div className="h-4" />

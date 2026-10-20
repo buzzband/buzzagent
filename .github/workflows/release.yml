@@ -21,9 +21,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest # Apple Silicon
+          - os: macos-latest # Apple Silicon (arm64 runner)
             target: aarch64-apple-darwin
-          - os: macos-latest # Intel
+          # Intel uses the dedicated macOS-13 pool: native x86_64 and a
+          # separate runner label, so the two macOS builds do not compete for
+          # the same (capacity-constrained) arm64 runners.
+          - os: macos-13
             target: x86_64-apple-darwin
           - os: windows-latest
             target: ""
@@ -84,6 +87,14 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.5
+            - **CI reliability (no app changes)**: the Intel macOS installer now
+              builds on the dedicated `macos-13` runner instead of competing for
+              the capacity-constrained arm64 pool, and the macOS Rust check uses
+              the same pool. GitHub runner shortages ("job was not acquired")
+              and their API "Internal server error" are infrastructure-side —
+              re-run failed jobs if they appear.
 
             ## Fixed in 0.2.4
             - **Windows / macOS build fix**: the exit cleanup's `try_lock`
@@ -170,6 +181,14 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.5
+            - **CI reliability (no app changes)**: the Intel macOS installer now
+              builds on the dedicated `macos-13` runner instead of competing for
+              the capacity-constrained arm64 pool, and the macOS Rust check uses
+              the same pool. GitHub runner shortages ("job was not acquired")
+              and their API "Internal server error" are infrastructure-side —
+              re-run failed jobs if they appear.
 
             ## Fixed in 0.2.4
             - **Windows / macOS build fix**: the exit cleanup's `try_lock`

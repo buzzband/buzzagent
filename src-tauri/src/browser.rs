@@ -54,7 +54,7 @@ const WINDOWS_BUNDLES: &[&str] = &[
 /// Find a usable Chromium-family executable. `CHROME` env var wins (it is what
 /// headless_chrome itself honors, so we mirror it for consistent messaging),
 /// then PATH candidates, then platform install locations.
-fn find_chromium_executable() -> Option<PathBuf> {
+pub(crate) fn find_chromium_executable() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("CHROME") {
         let p = PathBuf::from(&path);
         if p.exists() {

@@ -88,6 +88,21 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.16 — the agent gets browser tools
+            - **The coding agent can now SEE and drive the browser.** A
+              persistent headless-Chromium daemon is exposed to the agent
+              through its shell/read tools:
+              `buzzagent --browser-cli navigate|screenshot|console|click|type|eval`.
+              Screenshots are written to disk and the agent `read`s the PNG —
+              the model literally sees the page it is building (dev server or
+              file), checks console errors, clicks/types, and iterates. A
+              browser-tools instruction file is auto-registered in the core
+              config so the agent knows the commands; an MCP server with the
+              same tools is also registered for cores that expose MCP tools to
+              sessions (OpenCode 2.0.32 discovers them but does not yet).
+              Verified: navigate → title, eval, console, 1280×757 PNG, close;
+              daemon exits after 10 idle minutes.
+
             ## Fixed in 0.2.15
             - **Custom notification sound now works**: the chosen audio file was
               written into localStorage together with the other preferences,
@@ -277,6 +292,21 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.16 — the agent gets browser tools
+            - **The coding agent can now SEE and drive the browser.** A
+              persistent headless-Chromium daemon is exposed to the agent
+              through its shell/read tools:
+              `buzzagent --browser-cli navigate|screenshot|console|click|type|eval`.
+              Screenshots are written to disk and the agent `read`s the PNG —
+              the model literally sees the page it is building (dev server or
+              file), checks console errors, clicks/types, and iterates. A
+              browser-tools instruction file is auto-registered in the core
+              config so the agent knows the commands; an MCP server with the
+              same tools is also registered for cores that expose MCP tools to
+              sessions (OpenCode 2.0.32 discovers them but does not yet).
+              Verified: navigate → title, eval, console, 1280×757 PNG, close;
+              daemon exits after 10 idle minutes.
 
             ## Fixed in 0.2.15
             - **Custom notification sound now works**: the chosen audio file was

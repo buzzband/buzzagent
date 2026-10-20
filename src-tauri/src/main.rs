@@ -13,6 +13,7 @@
 //! go through the core so they inherit its permission and diff flow.
 
 mod browser;
+mod browser_mcp;
 mod core;
 mod git;
 mod tray;
@@ -1359,6 +1360,20 @@ mod loopback_tests {
 
 #[tokio::main]
 async fn main() {
+    // The core spawns this binary as an MCP server for the agent's browser
+    // tools (registered in the sandbox config). No GUI in that mode.
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if args.iter().any(|a| a == "--browser-daemon") {
+            std::process::exit(browser_mcp::run_daemon());
+        }
+        if let Some(pos) = args.iter().position(|a| a == "--browser-cli") {
+            std::process::exit(browser_mcp::run_cli(&args[pos + 1..]));
+        }
+        if args.iter().any(|a| a == "--mcp-browser") {
+            std::process::exit(browser_mcp::run());
+        }
+    }
     ensure_loopback_bypass();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

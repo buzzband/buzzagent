@@ -773,6 +773,77 @@ impl CoreSupervisor {
         Ok(())
     }
 
+    /// Give the agent real browser tools.
+    ///
+    /// Two channels, both written into the sandbox config before the core
+    /// starts:
+    ///  * an MCP server (this binary in `--mcp-browser` mode) — OpenCode
+    ///    2.0.32 connects and discovers its 7 tools, so it will light up
+    ///    once the core exposes MCP tools to sessions;
+    ///  * an ambient instructions file teaching the `--browser-cli` commands
+    ///    (navigate / screenshot / console / click / type / eval). This works
+    ///    TODAY through the agent's existing `shell` and `read` tools:
+    ///    screenshots are written to disk and `read` presents them to the
+    ///    model as images — the agent literally sees the page it is building.
+    fn ensure_browser_tools(&self, value: &mut serde_json::Value) {
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let exe = exe.to_string_lossy().to_string();
+
+        if !value.get("mcp").map(|v| v.is_object()).unwrap_or(false) {
+            value["mcp"] = serde_json::json!({});
+        }
+        if !value["mcp"]
+            .get("servers")
+            .map(|v| v.is_object())
+            .unwrap_or(false)
+        {
+            value["mcp"]["servers"] = serde_json::json!({});
+        }
+        value["mcp"]["servers"]["browser"] = serde_json::json!({
+            "type": "local",
+            "command": [exe.clone(), "--mcp-browser"],
+            "disabled": false
+        });
+
+        let dir = self
+            .user_config_path()
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| self.data_dir.join("core/config/opencode"));
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let instructions = dir.join("browser-tools.md");
+        let content = format!(
+            "# Browser tools\n\n\
+You can drive a real headless Chromium while you work, through the shell tool:\n\n\
+- `\"{exe}\" --browser-cli navigate <url>` — open an http(s) or file:// URL.\n\
+- `\"{exe}\" --browser-cli screenshot [absolute-path.png]` — capture the page and print the PNG path.\n\
+  Then call the `read` tool on that path: images are shown to you, so you can SEE the page.\n\
+- `\"{exe}\" --browser-cli console` — console.log/info/warn/error output and uncaught errors since navigation.\n\
+- `\"{exe}\" --browser-cli click <css-selector>` / `type <css-selector> <text>` — interact with the page.\n\
+- `\"{exe}\" --browser-cli eval \"<javascript>\"` — evaluate JS in the page (inspect DOM/state).\n\
+- `\"{exe}\" --browser-cli close` — close the browser (it also exits after ~10 idle minutes).\n\n\
+Use this to verify what you build instead of guessing: start the dev server (shell, background),\n\
+navigate to it, take a screenshot, read the image, check the console, fix what you see, repeat.\n",
+            exe = exe
+        );
+        if std::fs::write(&instructions, content).is_err() {
+            return;
+        }
+        let path = instructions.to_string_lossy().to_string();
+        if !value.get("instructions").map(|v| v.is_array()).unwrap_or(false) {
+            value["instructions"] = serde_json::json!([]);
+        }
+        if let Some(list) = value["instructions"].as_array_mut() {
+            if !list.iter().any(|v| v.as_str() == Some(path.as_str())) {
+                list.push(serde_json::json!(path));
+            }
+        }
+    }
+
     fn scrub_provider_keys(&self) -> Result<(), String> {
         let config_path = self.user_config_path();
         if !config_path.is_file() {
@@ -789,6 +860,8 @@ impl CoreSupervisor {
         //    migrate_v1_config): `provider`→`providers` (options→settings),
         //    `agent`→`agents` (prompt→system), `autoupdate`→`update`.
         migrate_v1_config(&mut value);
+        // 1b. Register the agent's browser tools (MCP server + instructions).
+        self.ensure_browser_tools(&mut value);
 
         // 2. Fold any v1 `auth.json` credentials into the v2 location
         //    (`providers.{id}.settings.apiKey`) before the core reads either —
@@ -867,6 +940,7 @@ impl CoreSupervisor {
         };
         // Raw editors can paste a v1-shaped config; land it in v2 form.
         migrate_v1_config(&mut value);
+        self.ensure_browser_tools(&mut value);
         force_privacy_keys(&mut value);
 
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
@@ -1831,6 +1905,44 @@ mod tests {
         let arr = variants.as_array().expect("legacy map must migrate to array");
         assert_eq!(arr.len(), 2);
         assert!(arr.iter().any(|v| v["id"] == "high" && v["settings"]["reasoningEffort"] == "high"));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn registers_browser_tools_and_instructions() {
+        let tmp = std::env::temp_dir().join(format!("bz-browser-{}", uuid::Uuid::new_v4()));
+        let sup = CoreSupervisor::new(tmp.clone());
+        let mut value = serde_json::json!({});
+
+        sup.ensure_browser_tools(&mut value);
+
+        // MCP server registered (self binary, --mcp-browser mode).
+        let server = &value["mcp"]["servers"]["browser"];
+        assert_eq!(server["type"], "local");
+        let command = server["command"].as_array().expect("command array");
+        assert_eq!(command[1], "--mcp-browser");
+        // Instructions file exists and is registered for the system prompt.
+        let list = value["instructions"].as_array().expect("instructions array");
+        let path = list
+            .iter()
+            .filter_map(|v| v.as_str())
+            .find(|p| p.ends_with("browser-tools.md"))
+            .expect("browser-tools.md registered");
+        let content = std::fs::read_to_string(path).expect("instructions file written");
+        assert!(content.contains("--browser-cli navigate"));
+        assert!(content.contains("--browser-cli screenshot"));
+        assert!(content.contains("read"));
+
+        // Idempotent: a second run adds no duplicate instruction entries.
+        sup.ensure_browser_tools(&mut value);
+        let count = value["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v.as_str().map(|s| s.ends_with("browser-tools.md")).unwrap_or(false))
+            .count();
+        assert_eq!(count, 1);
 
         std::fs::remove_dir_all(&tmp).ok();
     }

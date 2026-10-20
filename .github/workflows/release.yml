@@ -79,6 +79,28 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "BuzzAgent ${{ github.ref_name }}"
           releaseBody: |
+            > **The 0.2.\* series runs on OpenCode v2.0** (bundled sidecar **2.0.32**):
+            > new `/api` server layer, v2 config schema (`providers`/`settings`,
+            > `agents`/`system`), credential-based provider auth and the v2 event
+            > stream. Existing v1 settings and provider keys migrate automatically
+            > on first launch.
+
+            ## Fixed in 0.2.1
+            - **`provider.no-route — Model unavailable` with custom providers**:
+              v1-style reasoning variants in the config made the v2 core silently
+              drop the provider's whole model list, so every prompt failed. Custom
+              providers now write the v2 variant shape
+              (`[{ id, settings }]`) and existing broken configs are migrated
+              automatically on startup.
+            - **Error visibility**: errors now stick to the bottom edge of the chat
+              (always the last visible element, never scrolled out of view) and are
+              cleared when a new prompt starts.
+
+            ## 0.2.0 highlights
+            - Full migration to **OpenCode v2** (2.0.32): new API layer, v2 config
+              schema, credential-based provider auth, v2 event stream.
+            - Automatic **v1 → v2 migration** of existing settings and provider keys.
+
             Installers for Windows, macOS (Apple Silicon & Intel) and Linux.
 
             **Zero telemetry** 🔒 — the app talks only to your local core and the AI provider you configure.
@@ -107,6 +129,37 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: "BuzzAgent ${{ github.ref_name }}"
+          body: |
+            > **The 0.2.\* series runs on OpenCode v2.0** (bundled sidecar **2.0.32**):
+            > new `/api` server layer, v2 config schema (`providers`/`settings`,
+            > `agents`/`system`), credential-based provider auth and the v2 event
+            > stream. Existing v1 settings and provider keys migrate automatically
+            > on first launch.
+
+            ## Fixed in 0.2.1
+            - **`provider.no-route — Model unavailable` with custom providers**:
+              v1-style reasoning variants in the config made the v2 core silently
+              drop the provider's whole model list, so every prompt failed. Custom
+              providers now write the v2 variant shape
+              (`[{ id, settings }]`) and existing broken configs are migrated
+              automatically on startup.
+            - **Error visibility**: errors now stick to the bottom edge of the chat
+              (always the last visible element, never scrolled out of view) and are
+              cleared when a new prompt starts.
+
+            ## 0.2.0 highlights
+            - Full migration to **OpenCode v2** (2.0.32): new API layer, v2 config
+              schema, credential-based provider auth, v2 event stream.
+            - Automatic **v1 → v2 migration** of existing settings and provider keys.
+
+            Installers for Windows, macOS (Apple Silicon & Intel) and Linux.
+
+            **Zero telemetry** 🔒 — the app talks only to your local core and the AI provider you configure.
+
+            ## Install
+            - **Windows**: download the `.msi` (or `.exe`) installer and run it
+            - **macOS**: download the `.dmg` for your architecture, open and drag to Applications
+            - **Linux**: download the `.AppImage` (chmod +x) or the `.deb`/`.rpm`
           files: |
             releases/BuzzAgent_*_amd64.AppImage
             releases/BuzzAgent_*_amd64.deb

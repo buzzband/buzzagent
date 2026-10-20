@@ -88,6 +88,13 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.12
+            - **You can always see that the agent is working**: the chat now
+              shows a buzzing bee with flapping wings, "BuzzAgent is working…",
+              a live seconds counter, a shimmer bar and the name of the tool
+              currently running (e.g. `bash …`). Retry reasons still appear
+              under it when the provider is being retried.
+
             ## Fixed in 0.2.11
             - **Selected model now persists**: on every launch the app silently
               auto-picked the first connected provider — if that endpoint is
@@ -238,6 +245,13 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.12
+            - **You can always see that the agent is working**: the chat now
+              shows a buzzing bee with flapping wings, "BuzzAgent is working…",
+              a live seconds counter, a shimmer bar and the name of the tool
+              currently running (e.g. `bash …`). Retry reasons still appear
+              under it when the provider is being retried.
 
             ## Fixed in 0.2.11
             - **Selected model now persists**: on every launch the app silently

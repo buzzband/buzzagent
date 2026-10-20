@@ -88,6 +88,14 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.9
+            - **Browser attach-mode dead end**: "Cannot reach Chrome CDP at
+              http://127.0.0.1:9222" appears when Attach mode is selected but
+              no Chrome is running with `--remote-debugging-port`. The error
+              now explains this and the panel offers a one-click **Use managed
+              Chromium** button, which launches BuzzAgent's own headless
+              browser. Managed mode verified working (Chromium 154 CDP).
+
             ## Fixed in 0.2.8
             - **Removed the always-rejected live config PATCH**: v2's
               `Config.Patch` schema accepts only `{ shell }`, so the
@@ -215,6 +223,14 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.9
+            - **Browser attach-mode dead end**: "Cannot reach Chrome CDP at
+              http://127.0.0.1:9222" appears when Attach mode is selected but
+              no Chrome is running with `--remote-debugging-port`. The error
+              now explains this and the panel offers a one-click **Use managed
+              Chromium** button, which launches BuzzAgent's own headless
+              browser. Managed mode verified working (Chromium 154 CDP).
 
             ## Fixed in 0.2.8
             - **Removed the always-rejected live config PATCH**: v2's

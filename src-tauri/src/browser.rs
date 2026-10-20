@@ -509,7 +509,12 @@ async fn resolve_cdp_ws_url(cdp_url: &str) -> Result<String, String> {
         .get(&endpoint)
         .send()
         .await
-        .map_err(|e| format!("Cannot reach Chrome CDP at {}: {}", endpoint, e))?;
+        .map_err(|e| {
+            format!(
+                "Cannot reach Chrome CDP at {}: {}. Attach mode needs a Chrome/Chromium already running with --remote-debugging-port=9222 (or press \"Use managed Chromium\", which launches BuzzAgent's own headless browser).",
+                endpoint, e
+            )
+        })?;
 
     let json: serde_json::Value = res
         .json()

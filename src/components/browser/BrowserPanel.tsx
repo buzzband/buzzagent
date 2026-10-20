@@ -447,6 +447,23 @@ export function BrowserPanel() {
           className="mx-4 mt-2 flex items-start gap-2 rounded-md border border-[var(--danger)]/40 bg-[var(--danger-subtle)] px-3 py-2 text-xs text-[var(--danger)]"
         >
           <span className="selectable min-w-0 flex-1 break-words">{error}</span>
+          {error.includes("Cannot reach Chrome CDP") && (
+            <button
+              type="button"
+              onClick={() => {
+                // Attach mode expects a Chrome already started with
+                // --remote-debugging-port; nothing is listening. Managed
+                // mode launches its own headless Chromium instead.
+                setError(null);
+                void handleModeChange("managed").then(() => {
+                  void handleScreenshot();
+                });
+              }}
+              className="shrink-0 rounded-md bg-[var(--accent-subtle)] px-2 py-1 text-2xs font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent-hover)]/20"
+            >
+              Use managed Chromium
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void copyText(error)}

@@ -85,6 +85,17 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.2
+            - **Reasoning chip** now shows the actual thinking level
+              (e.g. `reasoning · max`) instead of the confusing `on`; enabling
+              reasoning defaults to the maximum level and is persisted.
+            - **The chat always shows a live status** (`Thinking Ns…`) from the
+              moment a prompt is sent — OpenCode v2 has no explicit busy event,
+              so a slow provider previously left the chat completely silent.
+            - **New session** moved into the composer toolbar (next to the mode
+              dropdown), freeing vertical space at the bottom of the chat.
+            - **Mode** is now a compact dropdown instead of a row of buttons.
+
             ## Fixed in 0.2.1
             - **`provider.no-route — Model unavailable` with custom providers**:
               v1-style reasoning variants in the config made the v2 core silently
@@ -135,6 +146,17 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.2
+            - **Reasoning chip** now shows the actual thinking level
+              (e.g. `reasoning · max`) instead of the confusing `on`; enabling
+              reasoning defaults to the maximum level and is persisted.
+            - **The chat always shows a live status** (`Thinking Ns…`) from the
+              moment a prompt is sent — OpenCode v2 has no explicit busy event,
+              so a slow provider previously left the chat completely silent.
+            - **New session** moved into the composer toolbar (next to the mode
+              dropdown), freeing vertical space at the bottom of the chat.
+            - **Mode** is now a compact dropdown instead of a row of buttons.
 
             ## Fixed in 0.2.1
             - **`provider.no-route — Model unavailable` with custom providers**:

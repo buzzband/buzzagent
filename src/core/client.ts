@@ -330,6 +330,15 @@ export function adaptEvent(raw: unknown): CoreEvent[] {
   const base = (): Record<string, unknown> => ({ ...data });
 
   switch (type) {
+    case "session.execution.started":
+      // v2 has no "busy" status event; synthesize one so the UI always has a
+      // live status (also covers queued prompts started by the core).
+      out.push({
+        type: "session.status",
+        properties: { sessionID: data["sessionID"], status: { type: "busy" } },
+      });
+      return out;
+
     case "session.execution.succeeded":
     case "session.execution.interrupted":
       out.push({ type: "session.idle", properties: base() });

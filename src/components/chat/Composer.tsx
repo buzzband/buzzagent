@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Clock,
   Loader2,
+  MessageSquarePlus,
   Mic,
   MicOff,
   Settings,
@@ -52,6 +53,7 @@ export function Composer() {
     composerDraft,
     openSettingsAt,
     reportError,
+    newSession,
   } = useApp(
     useShallow((s) => ({
       send: s.send,
@@ -73,6 +75,7 @@ export function Composer() {
       composerDraft: s.composerDraft,
       openSettingsAt: s.openSettingsAt,
       reportError: s.reportError,
+      newSession: s.newSession,
     }))
   );
   const [value, setValue] = useState("");
@@ -355,7 +358,22 @@ export function Composer() {
             | undefined
           )?.models?.[model.modelID]?.level as ReasoningLevel | undefined) ?? "off"
       : "off";
+  // The level the chip SHOWS. Reasoning on with no saved level means the
+  // provider default is used — the UI standard is "maximum possible", so show
+  // and persist "max" rather than the confusing "on".
+  const effectiveLevel: ReasoningLevel =
+    reasoningOn && reasoningLevel === "off" ? "max" : reasoningLevel;
   const [reasoningOpen, setReasoningOpen] = useState(false);
+
+  // Heal older configs (reasoning enabled before the max default existed):
+  // persist "max" so the displayed level, the dropdown and the variant sent
+  // with the prompt all agree.
+  useEffect(() => {
+    if (model && reasoningOn && reasoningLevel === "off") {
+      void setModelReasoningLevel("max");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model?.providerID, model?.modelID, reasoningOn, reasoningLevel]);
 
   return (
     <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 py-2.5">
@@ -525,40 +543,45 @@ export function Composer() {
           </div>
         </div>
 
-        {/* Toolbar: modes (editable via the gear), hint, model picker with its own gear */}
+        {/* Toolbar: mode dropdown (editable via the gear), new-session button,
+            hint, model picker with its own gear. The mode picker is a compact
+            dropdown instead of a row of buttons — space is precious at the
+            bottom of the chat. */}
         <div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-2xs text-[var(--fg-muted)]">
           <div className="flex min-w-0 items-center gap-1">
-            <span className="mr-1 shrink-0">{t(language, "composer.mode")}</span>
-            <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
-              {modes.map((modeItem) => {
-                const active = selectedAgent === modeItem.name;
-                return (
-                  <button
-                    key={modeItem.name}
-                    type="button"
-                    onClick={() => setSelectedAgent(active ? undefined : modeItem.name)}
-                    title={modeItem.description ?? `${modeItem.name} — ${t(language, "composer.modeHint")}`}
-                    aria-pressed={active}
-                    className={`shrink-0 rounded px-1.5 py-0.5 transition-colors ${
-                      active
-                        ? "bg-[var(--bg-active)] font-medium text-[var(--fg-primary)]"
-                        : "text-[var(--fg-muted)] hover:text-[var(--fg-secondary)]"
-                    }`}
-                  >
-                    {modeItem.name}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => openSettings("modes")}
-                title={t(language, "modes.title")}
-                aria-label={t(language, "modes.title")}
-                className="shrink-0 rounded p-0.5 text-[var(--fg-muted)] transition-colors hover:text-[var(--fg-primary)]"
-              >
-                <Settings size={11} />
-              </button>
-            </div>
+            <select
+              value={selectedAgent ?? ""}
+              onChange={(e) => setSelectedAgent(e.target.value || undefined)}
+              title={t(language, "composer.modeHint")}
+              aria-label={t(language, "composer.mode")}
+              className="max-w-[8.5rem] cursor-pointer rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-2xs text-[var(--fg-secondary)] transition-colors hover:text-[var(--fg-primary)] focus:border-[var(--accent)] focus:outline-none"
+            >
+              <option value="">{t(language, "composer.modeDefault")}</option>
+              {modes.map((modeItem) => (
+                <option key={modeItem.name} value={modeItem.name}>
+                  {modeItem.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => openSettings("modes")}
+              title={t(language, "modes.title")}
+              aria-label={t(language, "modes.title")}
+              className="shrink-0 rounded p-0.5 text-[var(--fg-muted)] transition-colors hover:text-[var(--fg-primary)]"
+            >
+              <Settings size={11} />
+            </button>
+            <button
+              type="button"
+              onClick={() => void newSession()}
+              title={t(language, "composer.newSession")}
+              aria-label={t(language, "composer.newSession")}
+              className="ml-1 flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[var(--fg-muted)] transition-colors hover:text-[var(--fg-primary)]"
+            >
+              <MessageSquarePlus size={11} />
+              <span className="hidden sm:inline">{t(language, "composer.newSession")}</span>
+            </button>
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
@@ -602,12 +625,7 @@ export function Composer() {
                   >
                     <Brain size={11} />
                     <span className="text-2xs">
-                      reasoning
-                      {reasoningLevel !== "off"
-                        ? ` · ${reasoningLevel}`
-                        : reasoningOn
-                          ? " · on"
-                          : ""}
+                      reasoning · {reasoningOn ? effectiveLevel : "off"}
                     </span>
                     <ChevronDown size={10} className="shrink-0 opacity-70" />
                   </button>
@@ -629,7 +647,7 @@ export function Composer() {
                             : (["off", ...REASONING_LEVELS] as const)
                           )
                         ).map((item) => {
-                          const active = reasoningLevel === item;
+                          const active = effectiveLevel === item;
                           return (
                             <button
                               key={item}

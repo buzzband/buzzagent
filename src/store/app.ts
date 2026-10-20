@@ -1027,6 +1027,9 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => ({
       busy: true,
       lastError: null,
+      // Visible feedback from the first millisecond: v2 emits no "busy"
+      // status frame, so without this a slow provider left the chat blank.
+      turnStatus: { type: "busy", since: Date.now() },
       messages: [
         ...state.messages,
         {

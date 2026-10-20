@@ -92,8 +92,11 @@ export interface NotifyPrefs {
   desktop: boolean;
   ntfyUrl: string;
   ntfyTopic: string;
-  /** Sound preset id ("bell" | "chime" | "ding" | "beep"). */
+  /** Sound preset id ("bell" | "chime" | "ding" | "beep" | "buzz" |
+   *  "pop" | "marimba" | "arcade" | "custom"). */
   soundId: string;
+  /** Data URL of a user-provided sound file (soundId === "custom"). */
+  customSound?: string;
 }
 
 export interface VoicePrefs {
@@ -1808,10 +1811,19 @@ function startWatchdog(set: Setter, get: Getter): void {
         markSseAlive(); // do not loop on a stalled channel; one recovery per window
         const messages = await s.client!.messages(s.sessionId!);
         const last = [...messages].reverse().find((m) => m.info.role !== "user");
-        const runningTool = last?.parts.some(
-          (p) => p.type === "tool" && (p.state?.status === "running" || p.state?.status === "pending")
+        // Any non-terminal tool state keeps the turn alive. v2 reports tool
+        // execution as `streaming` (input/arguments) before `running`, and a
+        // long-running shell command can spend minutes there — treating only
+        // `running` as busy made the bee vanish while the agent was still
+        // working.
+        const busyTool = last?.parts.some(
+          (p) =>
+            p.type === "tool" &&
+            (p.state?.status === "running" ||
+              p.state?.status === "streaming" ||
+              p.state?.status === "pending")
         );
-        const stillBusy = Boolean(runningTool) || messages.length === 0;
+        const stillBusy = Boolean(busyTool) || messages.length === 0;
         set({
           messages,
           ...(stillBusy
@@ -1926,7 +1938,7 @@ function notifyTurnFailed(get: Getter, message: string) {
   }
 
   if (notify.sound) {
-    playCompletionSound(notify.soundId);
+    playCompletionSound(notify.soundId, notify.customSound);
   }
 
   const base = notify.ntfyUrl.trim().replace(/\/+$/, "");
@@ -1955,7 +1967,7 @@ function notifyTurnComplete(get: Getter) {
   }
 
   if (notify.sound) {
-    playCompletionSound(notify.soundId);
+    playCompletionSound(notify.soundId, notify.customSound);
   }
 
   const base = notify.ntfyUrl.trim().replace(/\/+$/, "");
@@ -1971,30 +1983,50 @@ function notifyTurnComplete(get: Getter) {
 
 /** Sound presets for the completion notification. Each is a tiny
  *  Web Audio oscillator sequence — no audio assets needed. */
-const SOUND_PRESETS: Record<string, { notes: number[]; gap: number; dur: number }> = {
+const SOUND_PRESETS: Record<
+  string,
+  { notes: number[]; gap: number; dur: number; type?: OscillatorType; gain?: number }
+> = {
   bell: { notes: [880], gap: 0, dur: 0.35 },
   chime: { notes: [660, 880, 990], gap: 0.15, dur: 0.12 },
   ding: { notes: [1100, 880], gap: 0.1, dur: 0.1 },
   beep: { notes: [440], gap: 0, dur: 0.2 },
+  // A short bee-like flutter — the BuzzAgent signature.
+  buzz: { notes: [220, 240, 220, 240], gap: 0.055, dur: 0.07, type: "sawtooth", gain: 0.045 },
+  pop: { notes: [520, 300], gap: 0.04, dur: 0.06, type: "triangle" },
+  marimba: { notes: [523, 659, 784], gap: 0.12, dur: 0.18, type: "triangle" },
+  arcade: { notes: [523, 659, 784, 1047], gap: 0.09, dur: 0.09, type: "square", gain: 0.045 },
 };
 
 /** Play the completion sound. The AudioContext must be resumed() because
  *  the webview autoplay policy suspends it until a user gesture. We fire it
  *  inside a try/catch so a blocked context never breaks the notification. */
-export function playCompletionSound(soundId: string) {
+export function playCompletionSound(soundId: string, customSound?: string) {
+  // A user-provided file wins when "custom" is selected.
+  if (soundId === "custom" && customSound) {
+    try {
+      const audio = new Audio(customSound);
+      audio.volume = 0.7;
+      void audio.play().catch(() => undefined);
+      return;
+    } catch {
+      // Fall through to a preset so the user still hears something.
+    }
+  }
   try {
     const preset = SOUND_PRESETS[soundId] ?? SOUND_PRESETS.bell;
     const ctx = new AudioContext();
     void ctx.resume().then(() => {
       let t0 = ctx.currentTime + 0.05;
+      const level = preset.gain ?? 0.08;
       for (const freq of preset.notes) {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.frequency.value = freq;
-        osc.type = "sine";
-        gain.gain.setValueAtTime(0.08, t0);
+        osc.type = preset.type ?? "sine";
+        gain.gain.setValueAtTime(level, t0);
         gain.gain.exponentialRampToValueAtTime(0.0001, t0 + preset.dur);
         osc.start(t0);
         osc.stop(t0 + preset.dur);

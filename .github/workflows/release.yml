@@ -88,6 +88,15 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.13
+            - **The working bee no longer disappears mid-turn**: the watchdog
+              treated tool calls in the `streaming` state as finished, so a
+              long shell command cleared `busy` while the agent kept working.
+              Any non-terminal tool state now keeps the indicator alive.
+            - **More notification sounds**: eight built-in presets now (added
+              Bee buzz, Pop, Marimba, Arcade) plus **custom sound upload** —
+              choose any audio file and use it for completion/failure sounds.
+
             ## Fixed in 0.2.12
             - **You can always see that the agent is working**: the chat now
               shows a buzzing bee with flapping wings, "BuzzAgent is working…",
@@ -245,6 +254,15 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.13
+            - **The working bee no longer disappears mid-turn**: the watchdog
+              treated tool calls in the `streaming` state as finished, so a
+              long shell command cleared `busy` while the agent kept working.
+              Any non-terminal tool state now keeps the indicator alive.
+            - **More notification sounds**: eight built-in presets now (added
+              Bee buzz, Pop, Marimba, Arcade) plus **custom sound upload** —
+              choose any audio file and use it for completion/failure sounds.
 
             ## Fixed in 0.2.12
             - **You can always see that the agent is working**: the chat now

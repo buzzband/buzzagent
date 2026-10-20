@@ -1296,7 +1296,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                         label={t(language, "notify.sound")}
                       />
                       {notify.sound && (
-                        <div className="mt-2 flex items-center gap-2">
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
                           <select
                             value={notify.soundId}
                             onChange={(e) => setNotify({ soundId: e.target.value })}
@@ -1307,14 +1307,55 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                             <option value="chime">{t(language, "notify.soundChime")}</option>
                             <option value="ding">{t(language, "notify.soundDing")}</option>
                             <option value="beep">{t(language, "notify.soundBeep")}</option>
+                            <option value="buzz">{t(language, "notify.soundBuzz")}</option>
+                            <option value="pop">{t(language, "notify.soundPop")}</option>
+                            <option value="marimba">{t(language, "notify.soundMarimba")}</option>
+                            <option value="arcade">{t(language, "notify.soundArcade")}</option>
+                            <option value="custom">{t(language, "notify.soundCustom")}</option>
                           </select>
                           <button
                             type="button"
-                            onClick={() => playCompletionSound(notify.soundId)}
+                            onClick={() =>
+                              playCompletionSound(notify.soundId, notify.customSound)
+                            }
                             className="rounded-md border border-[var(--border-subtle)] px-2.5 py-1 text-2xs text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
                           >
                             {t(language, "notify.soundTest")}
                           </button>
+                          {notify.soundId === "custom" && (
+                            <>
+                              <label className="cursor-pointer rounded-md border border-[var(--border-subtle)] px-2.5 py-1 text-2xs text-[var(--fg-secondary)] transition-colors hover:text-[var(--fg-primary)]">
+                                {t(language, "notify.soundUpload")}
+                                <input
+                                  type="file"
+                                  accept="audio/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    if (file.size > 1_500_000) {
+                                      setNtfyStatus("failed");
+                                      return;
+                                    }
+                                    const reader = new FileReader();
+                                    reader.onload = () => {
+                                      const data = typeof reader.result === "string" ? reader.result : "";
+                                      if (data) {
+                                        setNotify({ customSound: data });
+                                        playCompletionSound("custom", data);
+                                      }
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }}
+                                />
+                              </label>
+                              <span className="max-w-[10rem] truncate text-2xs text-[var(--fg-muted)]">
+                                {notify.customSound
+                                  ? t(language, "notify.soundCustomSet")
+                                  : t(language, "notify.soundUpload")}
+                              </span>
+                            </>
+                          )}
                         </div>
                       )}
                       <Toggle

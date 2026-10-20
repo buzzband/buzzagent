@@ -1044,13 +1044,26 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                     <div className="mb-3 space-y-1">
                       {customProviderIds.map((id) => {
                         const def = customProviders[id];
+                        // v2 stores connection fields under `settings`; fall
+                        // back to v1 `options` for configs that predate the
+                        // migration. Reading the wrong key here gave the edit
+                        // dialog an EMPTY base URL — saving then wiped it, and
+                        // v2 failed every prompt with "requires an endpoint
+                        // baseURL".
+                        const settings = (def.settings ?? {}) as Record<string, unknown>;
                         const options = (def.options ?? {}) as Record<string, unknown>;
                         const models = (def.models ?? {}) as Record<string, unknown>;
                         const draft: ProviderDraft = {
                           id,
                           name: typeof def.name === "string" ? def.name : id,
-                          baseUrl: typeof options.baseURL === "string" ? options.baseURL : "",
-                          apiKey: typeof options.apiKey === "string" ? options.apiKey : undefined,
+                          baseUrl:
+                            typeof (settings.baseURL ?? options.baseURL) === "string"
+                              ? ((settings.baseURL ?? options.baseURL) as string)
+                              : "",
+                          apiKey:
+                            typeof (settings.apiKey ?? options.apiKey) === "string"
+                              ? ((settings.apiKey ?? options.apiKey) as string)
+                              : undefined,
                           models: models as ProviderDraft["models"],
                         };
                         return (

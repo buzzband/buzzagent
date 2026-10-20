@@ -85,6 +85,24 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.3
+            - **Custom provider "requires an endpoint baseURL"**: the provider
+              editor and the reasoning chip read the old v1 config key, so
+              editing a provider could save an empty base URL. They now read the
+              v2 `settings` block, the backend refuses to overwrite a stored
+              URL with an empty one, and the dialog requires the field.
+            - **Errors are always the last thing in the chat**: the error card
+              is pinned directly above the composer in every state, so it can
+              never be scrolled out of view at the top.
+            - **Notifications on failure**: a failed turn now plays the
+              completion sound and sends the desktop + ntfy notification (once
+              per turn). The success chime was also fixed — it had stopped
+              firing because event ordering cleared the busy state first.
+            - **Closing the app no longer leaves processes behind**: the exit
+              path no longer blocks on async cleanup or a Chrome shutdown call;
+              it kills the core's process group and every remaining child
+              synchronously before exiting.
+
             ## Fixed in 0.2.2
             - **Reasoning chip** now shows the actual thinking level
               (e.g. `reasoning · max`) instead of the confusing `on`; enabling
@@ -146,6 +164,24 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.3
+            - **Custom provider "requires an endpoint baseURL"**: the provider
+              editor and the reasoning chip read the old v1 config key, so
+              editing a provider could save an empty base URL. They now read the
+              v2 `settings` block, the backend refuses to overwrite a stored
+              URL with an empty one, and the dialog requires the field.
+            - **Errors are always the last thing in the chat**: the error card
+              is pinned directly above the composer in every state, so it can
+              never be scrolled out of view at the top.
+            - **Notifications on failure**: a failed turn now plays the
+              completion sound and sends the desktop + ntfy notification (once
+              per turn). The success chime was also fixed — it had stopped
+              firing because event ordering cleared the busy state first.
+            - **Closing the app no longer leaves processes behind**: the exit
+              path no longer blocks on async cleanup or a Chrome shutdown call;
+              it kills the core's process group and every remaining child
+              synchronously before exiting.
 
             ## Fixed in 0.2.2
             - **Reasoning chip** now shows the actual thinking level

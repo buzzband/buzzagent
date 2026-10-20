@@ -1463,15 +1463,46 @@ async fn main() {
         .run(|app_handle, event| {
             // Never leave an orphaned core (it can run shell commands).
             if let tauri::RunEvent::Exit = event {
+                // NEVER block the exit path. The previous implementation
+                // awaited the core lock and dropped the Chrome handle here:
+                // both can block indefinitely (a held lock, Chrome's CDP
+                // close on a wedged process), so closing the window left the
+                // app — and every child it had spawned — running. We only
+                // *signal* now: the core's whole process group plus every
+                // remaining direct child (headless Chrome), then let the
+                // process exit immediately.
                 let state = app_handle.state::<AppState>();
-                let core = state.core.clone();
-                // Chrome's kill runs in Browser::drop — which never fires on
-                // Tauri's exit path unless we shut the manager down
-                // explicitly.
-                tauri::async_runtime::block_on(async {
-                    core.lock().await.stop().await;
-                    state.browser.lock().await.shutdown().await;
-                });
+                if let Ok(mut core) = state.core.try_lock() {
+                    core.kill_now();
+                }
+                #[cfg(unix)]
+                kill_child_processes();
+                // The Browser handle is deliberately not dropped here:
+                // headless_chrome's Drop performs a synchronous CDP
+                // Browser.Close that can hang. Its process is already dead.
             }
         });
+}
+
+/// SIGKILL every direct child of this process (and its process group where it
+/// leads one). Catches the opencode core (own session via setsid) and the
+/// headless Chrome instance. Used on exit so nothing outlives the app.
+#[cfg(unix)]
+fn kill_child_processes() {
+    let Ok(tasks) = std::fs::read_dir("/proc/self/task") else {
+        return;
+    };
+    for task in tasks.flatten() {
+        let Ok(list) = std::fs::read_to_string(task.path().join("children")) else {
+            continue;
+        };
+        for pid in list.split_whitespace().filter_map(|s| s.parse::<i32>().ok()) {
+            unsafe {
+                // Group kill: the core leads its own session; harmless (ESRCH)
+                // for children that do not.
+                libc::kill(-pid, libc::SIGKILL);
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+    }
 }

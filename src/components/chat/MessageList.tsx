@@ -4,7 +4,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { MessageWithParts } from "../../core/types";
 import { useApp } from "../../store/app";
 import { Message } from "./Message";
-import { ChatErrorBanner } from "./ErrorCard";
 import { TurnStatus } from "./TurnStatus";
 
 /** Below this many messages, virtualization costs more than it saves. */
@@ -29,9 +28,6 @@ interface Props {
 export function MessageList({ messages, busy }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
-  // Errors render as the last item INSIDE the scrolled conversation; subscribe
-  // here so a new error participates in scroll-following like any message.
-  const hasError = useApp((s) => s.lastError !== null);
   const turnActive = useApp((s) => s.busy || s.turnStatus !== null);
 
   const atBottom = useCallback(() => {
@@ -53,7 +49,7 @@ export function MessageList({ messages, busy }: Props) {
   // Keep pinned to the tail as content grows, but only while following.
   useLayoutEffect(() => {
     if (following) scrollToBottom();
-  }, [messages, busy, hasError, turnActive, following, scrollToBottom]);
+  }, [messages, busy, turnActive, following, scrollToBottom]);
 
   const virtualize = messages.length > VIRTUALIZE_THRESHOLD;
 
@@ -117,15 +113,6 @@ export function MessageList({ messages, busy }: Props) {
         {/* Live turn status (Thinking Ns / Retry reason) — also participates
             in scroll-following so the user sees it instead of a silent tail. */}
         <TurnStatus />
-
-        {/* Sticky at the bottom edge of the chat viewport: the error must be
-            the LAST thing the user sees, never something that scrolls out of
-            view above newer content. */}
-        {hasError && (
-          <div className="sticky bottom-0 z-20 bg-[var(--bg-base)]/95 backdrop-blur-sm">
-            <ChatErrorBanner />
-          </div>
-        )}
 
         {/* Breathing room so the last message is never glued to the composer. */}
         <div className="h-4" />

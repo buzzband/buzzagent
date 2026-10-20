@@ -22,13 +22,15 @@ export function ChatTab() {
   return (
     <div className="flex h-full flex-col bg-[var(--bg-base)]">
       {messages.length === 0 ? (
-        <>
-          <EmptyChat />
-          <ChatErrorBanner />
-        </>
+        <EmptyChat />
       ) : (
         <MessageList messages={messages} busy={busy} />
       )}
+
+      {/* The error is pinned as the LAST element of the chat panel — right
+          above the composer — so it is always visible regardless of scroll
+          position or newer messages. */}
+      <ChatErrorBanner />
 
       <Composer />
       <div className="px-4 pb-2">

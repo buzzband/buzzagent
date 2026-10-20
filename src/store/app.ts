@@ -162,6 +162,9 @@ interface AppState {
    * show WHAT is happening instead of a silent spinner. Null when idle.
    */
   turnStatus: { type: string; message?: string; attempt?: number; since: number } | null;
+  /** True once the current turn reported an error — used to pick the failure
+   *  notification over the success one when the turn ends. */
+  turnHadError: boolean;
   todos: Todo[];
   queue: QueuedMessage[];
 
@@ -490,6 +493,7 @@ export const useApp = create<AppState>((set, get) => ({
   messages: [],
   busy: false,
   turnStatus: null,
+  turnHadError: false,
   todos: [],
   queue: [],
 
@@ -1027,6 +1031,7 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => ({
       busy: true,
       lastError: null,
+      turnHadError: false,
       // Visible feedback from the first millisecond: v2 emits no "busy"
       // status frame, so without this a slow provider left the chat blank.
       turnStatus: { type: "busy", since: Date.now() },
@@ -1488,7 +1493,14 @@ export const useApp = create<AppState>((set, get) => ({
     const { model, customProviders, reportError } = get();
     if (!model) return;
     const def = customProviders[model.providerID] as
-      | { name?: unknown; options?: { baseURL?: unknown; apiKey?: unknown }; models?: Record<string, { name?: string; reasoning?: boolean; level?: string }> }
+      | {
+          name?: unknown;
+          /** v2 connection fields. */
+          settings?: { baseURL?: unknown; apiKey?: unknown };
+          /** v1 leftovers (pre-migration configs). */
+          options?: { baseURL?: unknown; apiKey?: unknown };
+          models?: Record<string, { name?: string; reasoning?: boolean; level?: string }>;
+        }
       | undefined;
     if (!def) {
       set({ settingsInitialTab: "providers", settingsOpen: true });
@@ -1511,15 +1523,20 @@ export const useApp = create<AppState>((set, get) => ({
     }));
 
     // 2. Persist + live PATCH via the file command; NO core restart.
+    //    Connection fields live under `settings` in v2 (v1: `options`) —
+    //    reading the wrong key here sent an empty baseURL and gutted the
+    //    provider, so every later prompt failed with "requires an endpoint
+    //    baseURL".
+    const conn = {
+      baseURL: def.settings?.baseURL ?? def.options?.baseURL,
+      apiKey: def.settings?.apiKey ?? def.options?.apiKey,
+    };
     try {
       await invoke("core_save_custom_provider", {
         id: model.providerID,
         name: typeof def.name === "string" ? def.name : model.providerID,
-        baseUrl: typeof def.options?.baseURL === "string" ? def.options.baseURL : "",
-        apiKey:
-          typeof def.options?.apiKey === "string" && def.options.apiKey
-            ? def.options.apiKey
-            : null,
+        baseUrl: typeof conn.baseURL === "string" ? conn.baseURL : "",
+        apiKey: typeof conn.apiKey === "string" && conn.apiKey ? conn.apiKey : null,
         models: Object.entries(models).map(([id, mm]) => ({
           id,
           name: mm.name,
@@ -1840,6 +1857,38 @@ function subscribe(set: Setter, get: Getter) {
  * The ntfy destination is entirely user-configured, so this stays inside the
  * privacy rule: the user chose where it goes.
  */
+/** Failure counterpart of notifyTurnComplete: a turn that ends with an error
+ *  still deserves the sound and a notification (desktop + ntfy) — the user
+ *  asked to be alerted when the chat stops, error or not. */
+function notifyTurnFailed(get: Getter, message: string) {
+  const { notify, language } = get();
+  if (!notify.enabled) return;
+  const title = t(language, "status.turnFailed");
+  const body = message.length > 200 ? `${message.slice(0, 200)}…` : message;
+
+  if (notify.desktop && typeof Notification !== "undefined") {
+    if (Notification.permission === "granted") {
+      new Notification(`BuzzAgent — ${title}`, { body });
+    } else if (Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
+  }
+
+  if (notify.sound) {
+    playCompletionSound(notify.soundId);
+  }
+
+  const base = notify.ntfyUrl.trim().replace(/\/+$/, "");
+  const topic = notify.ntfyTopic.trim();
+  if (base && topic) {
+    void fetch(`${base}/${topic}`, {
+      method: "POST",
+      body: `BuzzAgent: ${title}${body ? ` — ${body}` : ""}`,
+      headers: { Title: `BuzzAgent — ${title}` },
+    }).catch(() => undefined);
+  }
+}
+
 function notifyTurnComplete(get: Getter) {
   const { notify, language } = get();
   if (!notify.enabled) return;
@@ -1986,9 +2035,12 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
       const type = str(status?.type);
       if (type === "idle") {
         const wasBusy = get().busy;
-        set({ busy: false, turnStatus: null });
+        const hadError = get().turnHadError;
+        set({ busy: false, turnStatus: null, turnHadError: false });
         stopWatchdog();
-        if (wasBusy) notifyTurnComplete(get);
+        // A turn that failed already sent the failure notification; never
+        // follow it with a "ready" one.
+        if (wasBusy && !hadError) notifyTurnComplete(get);
         void processQueue(set, get);
       } else if (type === "retry") {
         set({
@@ -2023,16 +2075,21 @@ function handleEvent(event: CoreEvent, set: Setter, get: Getter) {
     }
 
     case "session.error": {
-      set({ busy: false, turnStatus: null });
+      const wasBusy = get().busy;
+      const alreadyNotified = get().turnHadError;
+      set({ busy: false, turnStatus: null, turnHadError: true });
       stopWatchdog();
       // The core may deliver the failure as a bare payload in `properties.error`.
       if (isRecord(props.error)) {
-        set({
-          lastError: normalizeError(props.error, {
-            sessionID: str(props.sessionID) ?? get().sessionId ?? undefined,
-          }),
-          errorDetailOpen: false,
+        const normalized = normalizeError(props.error, {
+          sessionID: str(props.sessionID) ?? get().sessionId ?? undefined,
         });
+        set({ lastError: normalized, errorDetailOpen: false });
+        // Alert like a normal turn end — sound + desktop + ntfy. Once per
+        // turn: execution.failed may be accompanied by step-level errors.
+        if (wasBusy && !alreadyNotified) {
+          notifyTurnFailed(get, normalized.message);
+        }
         // A model that no longer exists in the core's catalogue (provider
         // refreshed its list, pinned model renamed) would fail EVERY turn.
         // Drop the dead selection so the composer falls back to a valid one.

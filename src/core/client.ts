@@ -340,19 +340,32 @@ export function adaptEvent(raw: unknown): CoreEvent[] {
       return out;
 
     case "session.execution.succeeded":
-    case "session.execution.interrupted":
-      out.push({ type: "session.idle", properties: base() });
-      out.push({ type: "session.status", properties: { sessionID: data["sessionID"], status: { type: "idle" } } });
-      return out;
-
-    case "session.execution.failed": {
-      const properties = base();
-      out.push({ type: "session.idle", properties });
+      // Only the status idle frame: its handler notifies completion. A
+      // preceding session.idle used to clear `busy` first, which silently
+      // suppressed the completion sound/notification.
       out.push({
         type: "session.status",
         properties: { sessionID: data["sessionID"], status: { type: "idle" } },
       });
-      out.push({ type: "session.error", properties: { sessionID: data["sessionID"], error: data["error"] } });
+      return out;
+
+    case "session.execution.interrupted":
+      // User-aborted turn: clear busy without the "ready" chime.
+      out.push({ type: "session.idle", properties: base() });
+      return out;
+
+    case "session.execution.failed": {
+      // Error first: the handler marks the turn as failed and sends the
+      // failure notification; the following idle frame then skips the
+      // "ready" notification but still processes the queue.
+      out.push({
+        type: "session.error",
+        properties: { sessionID: data["sessionID"], error: data["error"] },
+      });
+      out.push({
+        type: "session.status",
+        properties: { sessionID: data["sessionID"], status: { type: "idle" } },
+      });
       return out;
     }
 

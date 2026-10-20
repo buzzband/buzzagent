@@ -479,6 +479,33 @@ impl CoreSupervisor {
         }
     }
 
+    /// Synchronous, non-blocking kill used on app exit. The normal `stop()`
+    /// awaits the child (and can block on a wedged process or a held lock —
+    /// which is how the app ended up staying in the process list after the
+    /// window closed). This only signals: the core's whole process group on
+    /// Unix, taskkill /T on Windows, plus `start_kill` as a fallback.
+    pub fn kill_now(&mut self) {
+        if let Some(child) = self.child.as_mut() {
+            #[cfg(unix)]
+            if let Some(pid) = child.id() {
+                unsafe {
+                    libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+                    libc::kill(pid as libc::pid_t, libc::SIGKILL);
+                }
+            }
+            #[cfg(windows)]
+            if let Some(pid) = child.id() {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/T", "/F", "/PID", &pid.to_string()])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            let _ = child.start_kill();
+        }
+        self.child = None;
+    }
+
     pub async fn stop(&mut self) {
         if let Some(child) = self.child.as_mut() {
             // Kill the whole process *tree*, not just the direct child:
@@ -1006,7 +1033,37 @@ impl CoreSupervisor {
         // connection fields (apiKey + baseURL). The core resolves
         // settings.apiKey directly — v1's auth.json indirection is gone.
         let mut settings = serde_json::Map::new();
-        settings.insert("baseURL".into(), serde_json::json!(base_url));
+        // Never overwrite a stored endpoint with an empty string: the edit
+        // dialog once loaded the URL from the wrong config key and saved an
+        // empty value, after which v2 failed every prompt with
+        // "Route.model(openai-compatible-chat) requires an endpoint baseURL".
+        // Keep the previous baseURL when the caller sends none.
+        let existing_base_url = provider_obj
+            .get(id)
+            .and_then(|d| d.get("settings"))
+            .and_then(|s| s.get("baseURL"))
+            .and_then(|u| u.as_str())
+            .filter(|u| !u.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                // v1 leftovers, in case the migration has not run yet.
+                provider_obj
+                    .get(id)
+                    .and_then(|d| d.get("options"))
+                    .and_then(|o| o.get("baseURL"))
+                    .and_then(|u| u.as_str())
+                    .filter(|u| !u.trim().is_empty())
+                    .map(str::to_string)
+            });
+        let effective_base_url = {
+            let trimmed = base_url.trim();
+            if trimmed.is_empty() {
+                existing_base_url.unwrap_or_default()
+            } else {
+                trimmed.to_string()
+            }
+        };
+        settings.insert("baseURL".into(), serde_json::json!(effective_base_url));
         if let Some(key) = api_key.map(str::trim).filter(|k| !k.is_empty()) {
             settings.insert("apiKey".into(), serde_json::json!(key));
         } else {

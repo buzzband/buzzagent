@@ -88,6 +88,13 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.10 — critical
+            - **Desktop UI never received core events**: the Rust SSE pump still
+              connected to the v1 `/event` endpoint; v2 streams at `/api/event`.
+              Every desktop turn therefore ran (tools, text) while the chat
+              stayed blank and "Thinking" with no messages. The pump now uses
+              the v2 endpoint — the full live pipeline reaches the UI.
+
             ## Fixed in 0.2.9
             - **Browser attach-mode dead end**: "Cannot reach Chrome CDP at
               http://127.0.0.1:9222" appears when Attach mode is selected but
@@ -223,6 +230,13 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.10 — critical
+            - **Desktop UI never received core events**: the Rust SSE pump still
+              connected to the v1 `/event` endpoint; v2 streams at `/api/event`.
+              Every desktop turn therefore ran (tools, text) while the chat
+              stayed blank and "Thinking" with no messages. The pump now uses
+              the v2 endpoint — the full live pipeline reaches the UI.
 
             ## Fixed in 0.2.9
             - **Browser attach-mode dead end**: "Cannot reach Chrome CDP at

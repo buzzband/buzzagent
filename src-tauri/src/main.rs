@@ -274,7 +274,7 @@ async fn core_events_start(
                 base64::engine::general_purpose::STANDARD
                     .encode(format!("{}:{}", connection.username, connection.password))
             );
-            let url = format!("{}/event", connection.base_url);
+            let url = format!("{}/api/event", connection.base_url);
 
             let stream_result = async {
                 let response = http

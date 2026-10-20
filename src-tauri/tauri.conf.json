@@ -1,6 +1,6 @@
 {
   "productName": "BuzzAgent",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "identifier": "com.buzzagent.desktop",
   "build": {
     "frontendDist": "../dist",

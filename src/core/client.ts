@@ -902,7 +902,18 @@ export class CoreClient {
     const body = await this.request<Envelope<WireMessage[]>>(
       `/api/session/${sessionId}/message`
     );
-    return (body?.data ?? []).map(adaptMessage);
+    // v2 returns the transcript NEWEST-first (verified live: the assistant
+    // reply precedes the user prompt in the payload). The UI renders the
+    // array top-to-bottom, so keep it chronological — oldest first — or the
+    // whole chat reads upside-down and new messages appear at the top.
+    const adapted = (body?.data ?? []).map(adaptMessage);
+    if (adapted.every((m) => (m.info.time?.created ?? 0) > 0)) {
+      return adapted.sort(
+        (a, b) => (a.info.time?.created ?? 0) - (b.info.time?.created ?? 0)
+      );
+    }
+    // No usable timestamps: the payload order is authoritative — invert it.
+    return adapted.reverse();
   }
 
   /**

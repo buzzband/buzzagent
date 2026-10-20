@@ -92,6 +92,31 @@ describe("CoreClient", () => {
     });
   });
 
+  it("orders v2 messages oldest-first (wire payload is newest-first)", async () => {
+    // Regression: v2 returns the transcript newest-first; keeping that order
+    // rendered the whole chat upside-down (new messages at the top).
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: [
+          {
+            id: "msg_a",
+            type: "assistant",
+            time: { created: 200 },
+            content: [{ type: "text", text: "reply" }],
+          },
+          { id: "msg_u", type: "user", text: "hello", time: { created: 100 } },
+        ],
+      })
+    );
+    const client = new CoreClient(connection);
+
+    const messages = await client.messages("ses_1");
+
+    expect(messages.map((m) => m.info.id)).toEqual(["msg_u", "msg_a"]);
+    expect(messages[0].parts[0].text).toBe("hello");
+    expect(messages[1].parts[0].text).toBe("reply");
+  });
+
   it("explains an unreachable core instead of leaking a fetch error", async () => {
     fetchMock.mockRejectedValue(new TypeError("network down"));
     const client = new CoreClient(connection);

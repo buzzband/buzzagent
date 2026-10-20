@@ -88,6 +88,13 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.7
+            - **Chat order fixed**: OpenCode v2 returns the transcript
+              newest-first; the client kept that order, so the whole
+              conversation rendered upside-down (newest message at the top,
+              errors "above" everything). Messages are now sorted oldest →
+              newest, with a regression test.
+
             ## Fixed in 0.2.6
             - **Missing provider endpoint is now impossible to miss**: a custom
               provider without a Base URL shows a red "Endpoint URL missing"
@@ -195,6 +202,13 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.7
+            - **Chat order fixed**: OpenCode v2 returns the transcript
+              newest-first; the client kept that order, so the whole
+              conversation rendered upside-down (newest message at the top,
+              errors "above" everything). Messages are now sorted oldest →
+              newest, with a regression test.
 
             ## Fixed in 0.2.6
             - **Missing provider endpoint is now impossible to miss**: a custom

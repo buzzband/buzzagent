@@ -88,6 +88,20 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.14
+            - **The working indicator no longer disappears mid-turn (root
+              cause)**: v2 sends an SSE heartbeat every 15 s, but the pump
+              dropped comment frames, so after 20 s without a data event the
+              watchdog believed the stream died and "recovered" by clearing
+              `busy` — while the agent was still working. Heartbeats are now
+              forwarded (Rust pump + browser reader), the stale window is 45 s,
+              and a turn is only considered finished when the last assistant
+              message's `finish` is `stop` with no tool mid-flight. The
+              watchdog also stops itself after recovery instead of leaking.
+            - The buzzing bee is gone: the status now shows the label, live
+              seconds, tool name and shimmer, with a simple animated dots
+              indicator on the right.
+
             ## Fixed in 0.2.13
             - **The working bee no longer disappears mid-turn**: the watchdog
               treated tool calls in the `streaming` state as finished, so a
@@ -254,6 +268,20 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.14
+            - **The working indicator no longer disappears mid-turn (root
+              cause)**: v2 sends an SSE heartbeat every 15 s, but the pump
+              dropped comment frames, so after 20 s without a data event the
+              watchdog believed the stream died and "recovered" by clearing
+              `busy` — while the agent was still working. Heartbeats are now
+              forwarded (Rust pump + browser reader), the stale window is 45 s,
+              and a turn is only considered finished when the last assistant
+              message's `finish` is `stop` with no tool mid-flight. The
+              watchdog also stops itself after recovery instead of leaking.
+            - The buzzing bee is gone: the status now shows the label, live
+              seconds, tool name and shimmer, with a simple animated dots
+              indicator on the right.
 
             ## Fixed in 0.2.13
             - **The working bee no longer disappears mid-turn**: the watchdog

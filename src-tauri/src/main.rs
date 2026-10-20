@@ -343,6 +343,14 @@ async fn core_events_start(
                         }
                     } else if let Some(data) = line.strip_prefix("data:") {
                         pending_data.push(data.trim_start().to_string());
+                    } else if line.starts_with(':') {
+                        // v2 sends `: heartbeat` every ~15s. Forwarding it
+                        // keeps the UI's liveness clock fresh — dropping
+                        // comments made the watchdog think the stream died
+                        // during long tool runs.
+                        let _ = on_event.send(CoreEventChunk::Event {
+                            payload: "{\"type\":\"server.heartbeat\",\"data\":{}}".into(),
+                        });
                     }
                 }
             }

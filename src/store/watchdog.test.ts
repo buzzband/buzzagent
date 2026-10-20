@@ -13,7 +13,12 @@ describe("turn watchdog", () => {
   it("recovers a turn whose SSE events never arrive", async () => {
     const messages = [
       {
-        info: { id: "msg_a", sessionID: "ses_w", role: "assistant" as const },
+        info: {
+          id: "msg_a",
+          sessionID: "ses_w",
+          role: "assistant" as const,
+          finish: "stop",
+        },
         parts: [{ id: "p1", type: "text" as const, text: "done answer" }],
       },
     ];
@@ -42,11 +47,56 @@ describe("turn watchdog", () => {
       properties: { sessionID: "ses_w", status: { type: "busy" } },
     } as never);
 
-    // No further events; advance past the stale window (20s) plus ticks.
-    await vi.advanceTimersByTimeAsync(30_000);
+    // No further events; advance past the stale window (45s) plus ticks.
+    await vi.advanceTimersByTimeAsync(60_000);
 
     expect(client.messages).toHaveBeenCalledWith("ses_w");
     expect(useApp.getState().busy).toBe(false);
     expect(useApp.getState().messages).toEqual(messages);
+  });
+
+  it("keeps the turn busy when the last message continues with tool calls", async () => {
+    // Regression: the agent loop mid-turn (finish: "tool-calls") with a tool
+    // in `streaming` state must NOT be mistaken for a finished turn — that
+    // cleared `busy` and made the working indicator vanish.
+    const messages = [
+      {
+        info: {
+          id: "msg_b",
+          sessionID: "ses_w",
+          role: "assistant" as const,
+          finish: "tool-calls",
+        },
+        parts: [
+          {
+            id: "p1",
+            type: "tool" as const,
+            tool: "bash",
+            state: { status: "streaming" as const },
+          },
+        ],
+      },
+    ];
+    const client = {
+      messages: vi.fn().mockResolvedValue(messages),
+    };
+    useApp.setState({
+      busy: true,
+      sessionId: "ses_w",
+      client: client as never,
+      messages: [],
+      turnStatus: { type: "busy", since: Date.now() - 60_000 },
+      queue: [],
+    });
+
+    useApp.getState().__handleEvent({
+      type: "session.status",
+      properties: { sessionID: "ses_w", status: { type: "busy" } },
+    } as never);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(client.messages).toHaveBeenCalledWith("ses_w");
+    expect(useApp.getState().busy).toBe(true);
   });
 });

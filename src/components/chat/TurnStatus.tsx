@@ -2,17 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useApp } from "../../store/app";
 import { t } from "../../lib/i18n";
-import { BeeWorking } from "./BeeWorking";
 
 /**
- * Live turn status: the buzzing bee + "BuzzAgent is working… 12s" while the
- * model streams or tools run, plus the running tool's name and — when the
- * provider call fails and the core schedules a retry — the actual reason
- * ("Retry 2 · getaddrinfo ETIMEOUT").
+ * Live turn status: "BuzzAgent is working… 12s" with an animated dots
+ * indicator on the right while the model streams or tools run. The running
+ * tool's name and — when the provider call fails and the core schedules a
+ * retry — the actual reason ("Retry 2 · getaddrinfo ETIMEOUT") appear under
+ * the label.
  *
- * The bee exists because a silent spinner left users unsure whether the agent
- * was doing anything at all. v2 emits no "busy" status frame, so `busy` alone
- * (set the moment a prompt is sent) must always surface this indicator.
+ * v2 emits no "busy" status frame, so `busy` alone (set the moment a prompt
+ * is sent) must always surface this indicator; a silent chat made users
+ * unsure whether the agent was doing anything at all.
  */
 export function TurnStatus() {
   const { busy, turnStatus, messages, language } = useApp(
@@ -68,7 +68,6 @@ export function TurnStatus() {
       aria-live="polite"
       className="mx-1 my-1 flex items-center gap-3 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-subtle)]/40 px-3 py-2"
     >
-      <BeeWorking />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="text-xs font-medium text-[var(--fg-primary)]">
@@ -89,7 +88,12 @@ export function TurnStatus() {
               ? `${runningTool} …`
               : ""}
         </div>
-        <div className="bee-shimmer-bar mt-1.5" />
+        <div className="working-shimmer mt-1.5" />
+      </div>
+      <div className="working-dots" aria-hidden>
+        <span />
+        <span />
+        <span />
       </div>
     </div>
   );

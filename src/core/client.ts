@@ -277,6 +277,7 @@ function adaptMessage(wire: WireMessage): MessageWithParts {
     tokens: wire.tokens,
     modelID: wire.model?.id,
     providerID: wire.model?.providerID,
+    finish: wire.finish,
     error: wire.error
       ? {
           name: wire.error.type,
@@ -1196,7 +1197,12 @@ export class CoreClient {
                 .filter((line) => line.startsWith("data:"))
                 .map((line) => line.slice(5).trim())
                 .join("");
-              if (payload) emit(payload);
+              if (payload) {
+                emit(payload);
+              } else if (frame.trimStart().startsWith(":")) {
+                // Comment frame = v2 heartbeat; keep the liveness clock alive.
+                emit('{"type":"server.heartbeat","data":{}}');
+              }
               boundary = buffer.indexOf("\n\n");
             }
           }

@@ -125,6 +125,9 @@ export interface MessageInfo {
   tokens?: Tokens;
   modelID?: string;
   providerID?: string;
+  /** v2 wire `finish`: "stop" = turn/response complete, "tool-calls" = more
+   *  steps follow. Absent while a step is still streaming. */
+  finish?: string;
   error?: { name?: string; message?: string; data?: unknown } | null;
 }
 

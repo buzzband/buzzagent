@@ -1767,7 +1767,7 @@ let unsubscribe: (() => void) | null = null;
  * the authoritative state over HTTP and logs both facts to debug.log.
  */
 const WATCHDOG_TICK_MS = 5_000;
-const WATCHDOG_STALE_MS = 20_000;
+const WATCHDOG_STALE_MS = 45_000;
 let lastSseEventAt = 0;
 let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -1823,7 +1823,16 @@ function startWatchdog(set: Setter, get: Getter): void {
               p.state?.status === "streaming" ||
               p.state?.status === "pending")
         );
-        const stillBusy = Boolean(busyTool) || messages.length === 0;
+        // A turn is only over when the last assistant message genuinely
+        // finished (`finish === "stop"`) and no tool is mid-flight. A
+        // "tool-calls" finish means the agent loop continues — clearing busy
+        // there made the indicator vanish while the agent kept working.
+        const finished =
+          Boolean(last) &&
+          last?.info.role === "assistant" &&
+          last?.info.finish === "stop" &&
+          !busyTool;
+        const stillBusy = !finished || messages.length === 0;
         set({
           messages,
           ...(stillBusy
@@ -1835,7 +1844,14 @@ function startWatchdog(set: Setter, get: Getter): void {
             ? "core still busy (unfinished tool part) — messages refreshed"
             : "turn finished — busy cleared, messages refreshed"
         );
-        if (!stillBusy) void processQueue(set, get);
+        if (!stillBusy) {
+          // The recovery concluded the turn: stop the watchdog and continue
+          // the queue. Leaving the timer running leaked it and prevented the
+          // next turn's watchdog from ever starting (startWatchdog is a no-op
+          // while a timer exists).
+          stopWatchdog();
+          void processQueue(set, get);
+        }
       } catch {
         // Core unreachable: the connection error path will surface it.
       }

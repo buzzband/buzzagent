@@ -88,6 +88,19 @@ jobs:
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
 
+            ## Fixed in 0.2.8
+            - **Removed the always-rejected live config PATCH**: v2's
+              `Config.Patch` schema accepts only `{ shell }`, so the
+              whole-config `PATCH /api/experimental/config` returned 400 on
+              every settings/provider save ("schema rejection … Missing key at
+              [\"shell\"]"). Provider edits already restart the core (their
+              true apply path); settings apply on the core's periodic config
+              reload. No more 400 noise in the logs.
+            - Verified live: the reported `apiriver` provider with
+              `https://api.river.ai/v1` streams a full turn (`OK`), including
+              the `deepseek-ai/DeepSeek-V4.1-Flash-1017` and
+              `zai-org/GLM-5.3-Flash` models.
+
             ## Fixed in 0.2.7
             - **Chat order fixed**: OpenCode v2 returns the transcript
               newest-first; the client kept that order, so the whole
@@ -202,6 +215,19 @@ jobs:
             > `agents`/`system`), credential-based provider auth and the v2 event
             > stream. Existing v1 settings and provider keys migrate automatically
             > on first launch.
+
+            ## Fixed in 0.2.8
+            - **Removed the always-rejected live config PATCH**: v2's
+              `Config.Patch` schema accepts only `{ shell }`, so the
+              whole-config `PATCH /api/experimental/config` returned 400 on
+              every settings/provider save ("schema rejection … Missing key at
+              [\"shell\"]"). Provider edits already restart the core (their
+              true apply path); settings apply on the core's periodic config
+              reload. No more 400 noise in the logs.
+            - Verified live: the reported `apiriver` provider with
+              `https://api.river.ai/v1` streams a full turn (`OK`), including
+              the `deepseek-ai/DeepSeek-V4.1-Flash-1017` and
+              `zai-org/GLM-5.3-Flash` models.
 
             ## Fixed in 0.2.7
             - **Chat order fixed**: OpenCode v2 returns the transcript

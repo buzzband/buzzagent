@@ -872,20 +872,11 @@ impl CoreSupervisor {
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
         std::fs::write(&path, body).map_err(|e| format!("Failed to write settings: {}", e))?;
 
-        if let Some(conn) = &self.status.connection {
-            if let Ok(client) = reqwest::Client::builder()
-                .no_proxy()
-                .timeout(std::time::Duration::from_secs(4))
-                .build()
-            {
-                let _ = client
-                    .patch(format!("{}/api/experimental/config", conn.base_url))
-                    .basic_auth(&conn.username, Some(&conn.password))
-                    .json(&value)
-                    .send()
-                    .await;
-            }
-        }
+        // No live PATCH: v2's `Config.Patch` schema only accepts `{ shell }`
+        // — a whole-config body is rejected with
+        // `schema rejection … Missing key at ["shell"]` (400). Provider and
+        // settings changes are applied by the core's periodic config reload;
+        // the store deliberately restarts the core after provider edits.
         Ok(())
     }
 
@@ -932,20 +923,11 @@ impl CoreSupervisor {
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
         std::fs::write(&path, body).map_err(|e| format!("Failed to write settings: {}", e))?;
 
-        if let Some(conn) = &self.status.connection {
-            if let Ok(client) = reqwest::Client::builder()
-                .no_proxy()
-                .timeout(std::time::Duration::from_secs(4))
-                .build()
-            {
-                let _ = client
-                    .patch(format!("{}/api/experimental/config", conn.base_url))
-                    .basic_auth(&conn.username, Some(&conn.password))
-                    .json(&value)
-                    .send()
-                    .await;
-            }
-        }
+        // No live PATCH: v2's `Config.Patch` schema only accepts `{ shell }`
+        // — a whole-config body is rejected with
+        // `schema rejection … Missing key at ["shell"]` (400). Provider and
+        // settings changes are applied by the core's periodic config reload;
+        // the store deliberately restarts the core after provider edits.
 
         Ok(())
     }
@@ -1087,24 +1069,8 @@ impl CoreSupervisor {
         let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
         std::fs::write(&config_file, body).map_err(|e| format!("Failed to write config: {}", e))?;
 
-        // If core is currently running, also send PATCH /config over HTTP
-        if let Some(conn) = &self.status.connection {
-            let client = reqwest::Client::builder()
-                .no_proxy()
-                .timeout(std::time::Duration::from_secs(4))
-                .build()
-                .map_err(|e| e.to_string())?;
-            let url = format!("{}/api/experimental/config", conn.base_url);
-            let patch_payload = serde_json::json!({
-                "providers": value.get("providers")
-            });
-            let _ = client
-                .patch(&url)
-                .basic_auth(&conn.username, Some(&conn.password))
-                .json(&patch_payload)
-                .send()
-                .await;
-        }
+        // No live PATCH here either — v2 rejects whole-config patches
+        // (see write_settings). Provider edits restart the core from the UI.
 
         Ok(())
     }
